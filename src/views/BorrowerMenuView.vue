@@ -68,8 +68,8 @@
               @click="openBook(t.book)"
             >
               <div class="card-gradient" :class="statusClass(t.book)"></div>
-              <div class="cover-float" v-if="t.book?.cover">
-                <img :src="t.book.cover" :alt="t.book.title" />
+              <div class="cover-float" v-if="bookCover(t.book)">
+                <img :src="bookCover(t.book)" :alt="t.book.title" />
               </div>
               <div class="card-body">
                 <h3 class="book-title">{{ t.book?.title || 'Untitled' }}</h3>
@@ -109,7 +109,7 @@
               @click="openBook(b)"
             >
               <div class="cover-box">
-                <img v-if="b.cover" :src="b.cover" :alt="b.title" />
+                <img v-if="bookCover(b)" :src="bookCover(b)" :alt="b.title" />
                 <div class="status-band" :class="statusClass(b)">{{ availabilityLabel(b) }}</div>
               </div>
               <div class="meta-text">
@@ -125,17 +125,131 @@
       </div>
 
       <div class="panel" v-else-if="activeItem === 'browse'">
-        <div class="panel-actions">
-          <button class="btn" @click="books.fetchAll()" :disabled="books.loading">
-            {{ books.loading ? 'Loading…' : 'Reload Books' }}
-          </button>
+        <div class="browse-toolbar enhanced" role="region" aria-label="Browse Filters">
+          <div class="left-tools">
+            <button
+              class="btn"
+              @click="books.fetchAll()"
+              :disabled="books.loading"
+              aria-label="Refresh books list"
+            >
+              {{ books.loading ? 'Loading…' : 'Refresh' }}
+            </button>
+            <div class="chip-group" role="group" aria-label="Availability filter">
+              <button
+                type="button"
+                class="chip"
+                :class="{ active: browseAvailabilityFilter === '' }"
+                @click="browseAvailabilityFilter = ''"
+              >
+                All
+              </button>
+              <button
+                type="button"
+                class="chip"
+                :class="{ active: browseAvailabilityFilter === 'available' }"
+                @click="browseAvailabilityFilter = 'available'"
+              >
+                Available
+              </button>
+              <button
+                type="button"
+                class="chip"
+                :class="{ active: browseAvailabilityFilter === 'unavailable' }"
+                @click="browseAvailabilityFilter = 'unavailable'"
+              >
+                Unavailable
+              </button>
+            </div>
+            <div
+              class="select-wrap"
+              v-if="browseCategoryOptions.length"
+              aria-label="Category filter"
+            >
+              <select v-model="browseCategoryFilter" class="category-select">
+                <option value="">All Categories</option>
+                <option v-for="c in browseCategoryOptions" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="right-tools">
+            <span class="browse-count">Showing {{ browseFilteredBooks.length }} book(s)</span>
+          </div>
         </div>
-        <ul class="book-grid">
-          <li v-for="b in filteredBooks.slice(0, 40)" :key="b.id" class="book-card">
-            {{ b.title }}
-          </li>
-          <li v-if="!books.loading && filteredBooks.length === 0">No books found.</li>
-        </ul>
+        <div class="browse-grid" v-if="browseFilteredBooks.length">
+          <article
+            v-for="b in browseFilteredBooks"
+            :key="b.id"
+            class="book-card-browse"
+            :class="statusClass(b)"
+            @click="openBook(b)"
+            :aria-label="`View details for ${b.title || 'Untitled'}`"
+          >
+            <div class="cover-box-browse" v-if="bookCover(b)">
+              <img :src="bookCover(b)" :alt="b.title" />
+              <div class="status-band-browse" :class="statusClass(b)">
+                {{ availabilityLabel(b) }}
+              </div>
+              <button
+                v-if="auth.role === 'Borrower'"
+                type="button"
+                class="quick-borrow"
+                :disabled="!isAvailable(b) || pendingBorrowFor(b.id)"
+                @click.stop="openBorrowRequest(b)"
+                :aria-label="
+                  pendingBorrowFor(b.id)
+                    ? 'Borrow request pending'
+                    : isAvailable(b)
+                      ? 'Borrow this book'
+                      : 'Unavailable to borrow'
+                "
+              >
+                {{ pendingBorrowFor(b.id) ? 'Pending' : isAvailable(b) ? 'Borrow' : 'Unavailable' }}
+              </button>
+            </div>
+            <div class="info-block">
+              <h3 class="title">{{ b.title || 'Untitled' }}</h3>
+              <p class="author" v-if="b.author">{{ b.author }}</p>
+              <p class="category" v-if="deriveBookCategory(b)">{{ deriveBookCategory(b) }}</p>
+              <p
+                class="desc"
+                v-if="deriveDescription(b)"
+                :title="deriveDescription(b)"
+                :aria-label="`Description: ${deriveDescription(b).slice(0, 140)}${deriveDescription(b).length > 140 ? '…' : ''}`"
+              >
+                {{ truncateDescription(deriveDescription(b)) }}
+              </p>
+              <button
+                v-if="deriveDescription(b) && deriveDescription(b).length > 160"
+                type="button"
+                class="read-more"
+                @click.stop="openBook(b)"
+                aria-label="Read full description"
+              >
+                Read more
+              </button>
+              <div class="meta-line">
+                <span class="copies" title="Copies available">
+                  Copies: <strong>{{ b.available_copies ?? b.copies ?? '—' }}</strong>
+                </span>
+                <span class="availability-tag" :class="statusClass(b)">{{
+                  availabilityLabel(b)
+                }}</span>
+              </div>
+            </div>
+          </article>
+        </div>
+        <p v-else-if="!books.loading" class="empty-msg">No books match current filters.</p>
+        <div v-else class="skeleton-grid" aria-hidden="true">
+          <div class="skeleton-card" v-for="n in 6" :key="n">
+            <div class="sk-cover"></div>
+            <div class="sk-lines">
+              <div class="sk-line w80"></div>
+              <div class="sk-line w60"></div>
+              <div class="sk-line w40"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="panel" v-else-if="activeItem === 'borrowed'">
@@ -201,9 +315,21 @@
       </div>
 
       <div class="panel" v-else-if="activeItem === 'return'">
+        <div class="return-toolbar">
+          <h3 class="return-heading">
+            Currently Borrowing Books
+            <span class="count-badge">{{ borrowedTransactions.length }}</span>
+          </h3>
+          <button class="btn small" @click="refreshReturnPanel" :disabled="borrowing.loading">
+            {{ borrowing.loading ? 'Refreshing…' : 'Refresh' }}
+          </button>
+        </div>
+
+        <br />
+
         <ul class="book-grid return-list">
           <li
-            v-for="t in borrowing.transactions"
+            v-for="t in borrowedTransactions"
             :key="t.id"
             class="book-card"
             :class="returnStatusClass(t)"
@@ -218,20 +344,75 @@
               >
                 Request Return
               </button>
+              <button v-else class="btn small" disabled title="No action available for this status">
+                No Action
+              </button>
+            </div>
+          </li>
+          <li v-if="borrowedTransactions.length === 0">No currently borrowed books.</li>
+        </ul>
+        <div class="return-divider"></div>
+        <h3 class="return-heading">
+          Overdued Books <span class="count-badge">{{ overdueTransactions.length }}</span>
+        </h3>
+        <ul class="book-grid return-list">
+          <li
+            v-for="t in overdueTransactions"
+            :key="t.id"
+            class="book-card"
+            :class="returnStatusClass(t)"
+          >
+            <span class="book-row-title">{{ t.book?.title || 'Book' }}</span>
+            <span class="status-badge" :class="statusKey(t)">{{ statusLabel(t) }}</span>
+            <div class="row-actions">
               <button
-                v-else-if="auth.role !== 'Borrower' && t.status === 'ReturnRequested'"
+                v-if="auth.role === 'Borrower' && canRequestReturn(t)"
                 class="btn small"
-                @click="confirmReturn(t.id)"
+                @click="returnSelected(t.id)"
               >
-                Confirm Return
+                Request Return
               </button>
               <button v-else class="btn small" disabled title="No action available for this status">
                 No Action
               </button>
             </div>
           </li>
-          <li v-if="borrowing.transactions.length === 0">No items to return.</li>
+          <li v-if="overdueTransactions.length === 0">No overdue books.</li>
         </ul>
+        <div class="return-divider"></div>
+        <div class="returned-header">
+          <h3 class="return-heading">
+            Returned Books <span class="count-badge">{{ returnedTransactions.length }}</span>
+          </h3>
+          <button
+            type="button"
+            class="btn small toggle-returned"
+            @click="showReturned = !showReturned"
+            :disabled="returnedTransactions.length === 0"
+          >
+            {{ showReturned ? 'Hide' : 'Show' }}
+          </button>
+        </div>
+        <transition name="fade">
+          <ul
+            v-if="showReturned && returnedTransactions.length"
+            class="book-grid return-list returned-expanded"
+          >
+            <li
+              v-for="t in returnedTransactions"
+              :key="t.id"
+              class="book-card"
+              :class="returnStatusClass(t)"
+            >
+              <span class="book-row-title">{{ t.book?.title || 'Book' }}</span>
+              <span class="status-badge" :class="statusKey(t)">{{ statusLabel(t) }}</span>
+              <div class="row-actions">
+                <button class="btn small" disabled title="Already returned">Returned</button>
+              </div>
+            </li>
+          </ul>
+        </transition>
+        <p v-if="returnedTransactions.length === 0" class="empty-msg">No returned books yet.</p>
       </div>
 
       <!-- Profile panel now handled via overlay; keep fallback for accessibility -->
@@ -341,17 +522,95 @@
       <div class="book-modal">
         <div class="detail-card" :class="statusClass(selectedBook)">
           <div class="detail-gradient" :class="statusClass(selectedBook)"></div>
-          <div class="detail-cover" v-if="selectedBook.cover">
-            <img :src="selectedBook.cover" :alt="selectedBook.title" />
-          </div>
-          <div class="detail-body">
-            <h2 id="bookDetailHeading" class="detail-title">{{ selectedBook.title }}</h2>
-            <p class="detail-author" v-if="selectedBook.author">
-              Author: {{ selectedBook.author }}
-            </p>
-            <p class="detail-category" v-if="selectedBook.subject">
-              Category: {{ selectedBook.subject }}
-            </p>
+          <div class="detail-row">
+            <div class="detail-cover-inline" v-if="bookCover(selectedBook)">
+              <img :src="bookCover(selectedBook)" :alt="selectedBook.title" />
+            </div>
+            <div class="detail-body">
+              <h2 id="bookDetailHeading" class="detail-title">{{ selectedBook.title }}</h2>
+              <p class="detail-author" v-if="selectedBook.author">
+                Author: {{ selectedBook.author }}
+              </p>
+              <p class="detail-category" v-if="selectedBook.subject">
+                Category: {{ selectedBook.subject }}
+              </p>
+              <div class="detail-meta">
+                <span
+                  v-if="selectedBook.available_copies != null || selectedBook.copies != null"
+                  class="d-chip copies"
+                >
+                  Copies:
+                  <strong>{{ selectedBook.available_copies ?? selectedBook.copies }}</strong>
+                </span>
+                <span v-if="selectedBook.year_published" class="d-chip year">
+                  Year: <strong>{{ selectedBook.year_published }}</strong>
+                </span>
+              </div>
+              <div
+                v-if="deriveDescription(selectedBook)"
+                class="detail-description"
+                :aria-label="`Full description for ${selectedBook.title}`"
+              >
+                <div class="desc-header-line">
+                  <h3 class="desc-h">Description</h3>
+                  <button
+                    v-if="auth.role !== 'Borrower'"
+                    type="button"
+                    class="edit-desc-btn"
+                    @click="toggleDetailDescEdit"
+                    :aria-label="detailEditingDesc ? 'Cancel description edit' : 'Edit description'"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                  </button>
+                </div>
+                <div v-if="!detailEditingDesc" class="desc-view-wrapper">
+                  <p class="desc-full">{{ deriveDescription(selectedBook) }}</p>
+                </div>
+                <div v-else class="desc-edit-wrapper">
+                  <textarea
+                    v-model="detailDescDraft"
+                    class="desc-edit-area"
+                    rows="6"
+                    maxlength="1200"
+                    @input="autoSizeDetailDesc"
+                    :disabled="savingDetailDesc"
+                  ></textarea>
+                  <div class="desc-edit-actions">
+                    <small>{{ detailDescDraft.length }}/1200</small>
+                    <div class="buttons">
+                      <button
+                        type="button"
+                        class="mini-outline"
+                        @click="toggleDetailDescEdit"
+                        :disabled="savingDetailDesc"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        class="mini-primary"
+                        @click="saveDetailDescription"
+                        :disabled="savingDetailDesc || !detailDescDraft.trim()"
+                      >
+                        {{ savingDetailDesc ? 'Saving…' : 'Save' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="detail-pill" :class="statusClass(selectedBook)">
             {{ availabilityLabel(selectedBook) }}
@@ -360,13 +619,65 @@
         <div class="modal-actions">
           <button type="button" class="outline-btn" @click="closeBookModal">Cancel</button>
           <button
-            v-if="isAvailable(selectedBook) && auth.role !== 'Borrower'"
+            v-if="auth.role === 'Borrower' && isAvailable(selectedBook)"
             type="button"
             class="primary-btn"
-            @click="borrowSelected(selectedBook)"
+            :disabled="pendingBorrowFor(selectedBook.id)"
+            @click="openBorrowRequest(selectedBook)"
           >
-            Borrow
+            {{ pendingBorrowFor(selectedBook.id) ? 'Pending' : 'Borrow' }}
           </button>
+        </div>
+      </div>
+    </div>
+    <!-- Borrow Request Modal (confirmation before sending request) -->
+    <div
+      v-if="showBorrowRequest && requestBook"
+      class="borrow-card-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="borrowRequestHeading"
+    >
+      <div class="borrow-card-modal" ref="borrowRequestTarget">
+        <button class="close" @click="closeBorrowRequest" aria-label="Close">×</button>
+        <div class="borrow-card-inner">
+          <div class="borrow-card-columns">
+            <div class="borrow-card-col left">
+              <h2 id="borrowRequestHeading">Borrow Request</h2>
+              <h3 class="sec-title">Student Information</h3>
+              <p><strong>ID:</strong> {{ deriveSid(auth.user) || '—' }}</p>
+              <p><strong>Name:</strong> {{ auth.user?.full_name || auth.user?.name || '—' }}</p>
+              <p><strong>Email:</strong> {{ auth.user?.email || '—' }}</p>
+              <h3 class="sec-title">Book Details</h3>
+              <p><strong>Title:</strong> {{ requestBook.title || 'Untitled' }}</p>
+              <p v-if="requestBook.author"><strong>Author:</strong> {{ requestBook.author }}</p>
+              <p v-if="requestBook.subject"><strong>Category:</strong> {{ requestBook.subject }}</p>
+              <br />
+              <p><strong>Date Borrowed:</strong> <em>Pending librarian input</em></p>
+              <p><strong>Due Date:</strong> <em>Pending librarian input</em></p>
+              <br />
+              <p class="borrow-note">A request will be sent to the librarian for approval.</p>
+            </div>
+            <div class="borrow-card-col right">
+              <div class="qr-box">
+                <div class="qr-placeholder"></div>
+              </div>
+              <small>QR will be generated upon approval.</small>
+            </div>
+          </div>
+          <div class="actions-row">
+            <button type="button" class="outline-btn" @click="closeBorrowRequest">Cancel</button>
+            <button
+              type="button"
+              class="primary-btn"
+              :disabled="sendingBorrow || pendingBorrowFor(requestBook.id)"
+              @click="sendBorrowRequest"
+            >
+              {{
+                pendingBorrowFor(requestBook.id) ? 'Pending' : sendingBorrow ? 'Sending…' : 'Borrow'
+              }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -449,15 +760,19 @@
 // =====================================================
 // IMPORTS
 // =====================================================
-import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import QrcodeVue from 'qrcode.vue'
 import borrowerLogo from '@/assets/ALIS Logo transparent.png'
 import { useAuthStore } from '@/stores/auth'
 import { useBooksStore } from '@/stores/books'
 import { useBorrowingStore } from '@/stores/borrowing'
+import { useBorrowRequestsStore } from '@/stores/borrowRequests'
+import { useBookCoversStore } from '@/stores/bookCovers'
+import placeholderCover from '@/assets/book-placeholder.svg'
 import { useActivityStore } from '@/stores/activity'
 import { useRouter } from 'vue-router'
 import { useNotificationsStore } from '@/stores/notifications'
+import { truncateDescription } from '@/utils/text'
 
 // =====================================================
 // STORE INSTANCES & ROUTER
@@ -465,6 +780,11 @@ import { useNotificationsStore } from '@/stores/notifications'
 const auth = useAuthStore()
 const books = useBooksStore()
 const borrowing = useBorrowingStore()
+const borrowRequests = useBorrowRequestsStore()
+onMounted(() => {
+  borrowRequests.fetchMine?.()
+})
+const bookCovers = useBookCoversStore()
 const activity = useActivityStore()
 const router = useRouter()
 const notify = useNotificationsStore()
@@ -482,6 +802,17 @@ const showBookModal = ref(false)
 const selectedBook = ref(null)
 const showBorrowCard = ref(false)
 const selectedTransaction = ref(null)
+// Segmented return lists & toggle
+const showReturned = ref(false)
+const borrowedTransactions = computed(() =>
+  borrowing.transactions.filter((x) => x.status === 'Borrowed'),
+)
+const overdueTransactions = computed(() =>
+  borrowing.transactions.filter((x) => x.status === 'Overdue'),
+)
+const returnedTransactions = computed(() =>
+  borrowing.transactions.filter((x) => x.status === 'Returned'),
+)
 const borrowCardValue = computed(() => {
   if (!selectedTransaction.value) return ''
   return JSON.stringify({
@@ -491,6 +822,64 @@ const borrowCardValue = computed(() => {
     user: auth.user?.id,
   })
 })
+// Inline description edit (librarian/admin)
+const detailEditingDesc = ref(false)
+const detailDescDraft = ref('')
+const savingDetailDesc = ref(false)
+function toggleDetailDescEdit() {
+  if (!selectedBook.value) return
+  if (!detailEditingDesc.value) {
+    detailDescDraft.value = deriveDescription(selectedBook.value)
+  }
+  detailEditingDesc.value = !detailEditingDesc.value
+  nextTick(() => autoSizeDetailDesc())
+}
+function autoSizeDetailDesc() {
+  const el = document.querySelector('.desc-edit-area')
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 300) + 'px'
+}
+async function saveDetailDescription() {
+  if (!selectedBook.value) return
+  const book = selectedBook.value
+  const desc = detailDescDraft.value.trim()
+  if (!desc) return
+  try {
+    savingDetailDesc.value = true
+    // Prefer minimal PATCH if backend accepts; fallback to full update with sanitized cover.
+    const minimalPayload = { description: desc }
+    try {
+      await books.update(book.id, minimalPayload)
+    } catch {
+      const coverRaw = book.cover_image || book.cover || ''
+      const safeCover =
+        !coverRaw || coverRaw.startsWith('data:') || coverRaw.length > 255 ? '' : coverRaw
+      const fallbackPayload = {
+        isbn: book.isbn || book.book_code || book.code || book.id,
+        title: book.title,
+        author: book.author,
+        year_published: book.year_published || new Date().getFullYear(),
+        category_id: book.category_id || (book.category && book.category.id) || '',
+        total_copies: book.total_copies ?? book.copies ?? 0,
+        available_copies: book.available_copies ?? book.copies ?? 0,
+        date_added: book.date_added || new Date().toISOString().split('T')[0],
+        cover_image: safeCover,
+        description: desc,
+      }
+      await books.update(book.id, fallbackPayload)
+    }
+    // Refresh selectedBook reference
+    const updated = books.list.find((b) => b.id === book.id)
+    if (updated) selectedBook.value = updated
+    detailEditingDesc.value = false
+  } catch (e) {
+    console.error(e)
+    notify.push('Failed to save description.', { type: 'error' })
+  } finally {
+    savingDetailDesc.value = false
+  }
+}
 function openBook(book) {
   selectedBook.value = book
   showBookModal.value = true
@@ -524,18 +913,71 @@ function statusClass(book) {
 function availabilityLabel(book) {
   return isAvailable(book) ? 'Available' : 'Unavailable'
 }
-async function borrowSelected(book) {
-  // Triggered by the Borrow button in the book detail modal
+// Derive description using multiple possible backend fields
+function deriveDescription(book) {
+  if (!book || typeof book !== 'object') return ''
+  return book.description || book.summary || book.synopsis || book.abstract || book.notes || ''
+}
+// =====================================================
+// BORROW REQUEST FLOW (BORROWER ROLE)
+// =====================================================
+const showBorrowRequest = ref(false)
+const requestBook = ref(null)
+const sendingBorrow = ref(false)
+
+function openBorrowRequest(book) {
   if (!book || !isAvailable(book)) return
+  requestBook.value = book
+  showBorrowRequest.value = true
+}
+function closeBorrowRequest() {
+  showBorrowRequest.value = false
+  requestBook.value = null
+}
+function pendingBorrowFor(id) {
+  return borrowRequests.hasPendingFor(id)
+}
+async function sendBorrowRequest() {
+  if (!requestBook.value || pendingBorrowFor(requestBook.value.id)) return
   try {
-    await borrowing.createBorrow({ book_id: book.id })
-    await borrowing.fetchTransactions()
-    notify.push('Book borrowed successfully.', { type: 'success' })
-    closeBookModal()
-  } catch (err) {
-    notify.push('Failed to borrow book.', { type: 'error' })
-    console.error(err)
+    sendingBorrow.value = true
+    // Local pending request (until backend endpoint exists)
+    await borrowRequests.createRequest(requestBook.value.id)
+    notify.push('Borrow request submitted. Awaiting approval.', { type: 'info' })
+  } catch (e) {
+    console.error(e)
+    notify.push('Failed to create borrow request.', { type: 'error' })
+  } finally {
+    sendingBorrow.value = false
   }
+}
+
+// =====================================================
+// BOOK COVER RESOLUTION (SUPPORT MULTIPLE BACKEND FIELD NAMES)
+// =====================================================
+function bookCover(book) {
+  if (!book || typeof book !== 'object') return null
+  // Local frontend-only override from store has priority
+  const local = bookCovers.coverFor(book.id)
+  if (local) return local
+  const candidates = [
+    book.cover,
+    book.cover_image,
+    book.image,
+    book.image_url,
+    book.cover_url,
+    book.thumbnail,
+    book.thumb,
+    book.photo,
+    book.picture,
+  ].filter(Boolean)
+  let src = candidates[0] || null
+  // If backend gives just a filename (no protocol), optionally prefix with storage path
+  if (src && !/^https?:\/\//i.test(src) && !src.startsWith('/')) {
+    // Attempt to build a relative path; adjust if your API serves images elsewhere
+    src = `/storage/${src}`
+  }
+  return src || placeholderCover
 }
 
 // =====================================================
@@ -633,6 +1075,39 @@ const filteredBooks = computed(() => {
 })
 
 // =====================================================
+// BROWSE PANEL DEDICATED FILTERS (AVAILABILITY + CATEGORY)
+// =====================================================
+const browseAvailabilityFilter = ref('') // '', 'available', 'unavailable'
+const browseCategoryFilter = ref('')
+const browseCategoryOptions = computed(() => {
+  const set = new Set(
+    books.list
+      .map(
+        (b) =>
+          b.subject ||
+          b.category ||
+          b.category_name ||
+          (b.category && b.category.name) ||
+          (b.category && b.category.title) ||
+          (Array.isArray(b.categories) && b.categories[0]) ||
+          b.genre ||
+          '',
+      )
+      .filter(Boolean),
+  )
+  return Array.from(set).sort((a, b) => a.localeCompare(b))
+})
+const browseFilteredBooks = computed(() => {
+  return filteredBooks.value.filter((b) => {
+    const availMatch =
+      !browseAvailabilityFilter.value || statusClass(b) === browseAvailabilityFilter.value
+    const cat = deriveBookCategory(b)
+    const catMatch = !browseCategoryFilter.value || cat === browseCategoryFilter.value
+    return availMatch && catMatch
+  })
+})
+
+// =====================================================
 // SEARCH ACTION HELPERS
 // =====================================================
 function performSearch() {
@@ -654,6 +1129,9 @@ function deriveUserName(u) {
 function deriveUserSid(u) {
   if (!u) return ''
   return u.student_number || u.faculty_number || u.sid || ''
+}
+function deriveSid(u) {
+  return deriveUserSid(u)
 }
 function populateProfileForm() {
   if (auth.user) {
@@ -838,17 +1316,19 @@ async function confirmReturn(id) {
     console.error(err)
   }
 }
+function refreshReturnPanel() {
+  borrowing.fetchTransactions()
+}
 </script>
 
 <style scoped>
 .borrower-home {
   background-color: #ffffff;
   min-height: 1035px;
-  min-width: 1200px;
   position: relative;
   width: 100%;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  overflow-x: auto;
+  overflow-x: hidden;
   padding-bottom: 120px;
 }
 .element-wrapper {
@@ -1016,9 +1496,400 @@ async function confirmReturn(id) {
   margin: 0;
   padding: 0;
   display: grid;
+  .browse-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .browse-count {
+    font-size: 13px;
+    color: #444;
+  }
+  .browse-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .browse-row {
+    display: flex;
+    gap: 18px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    padding: 16px 18px;
+    border-radius: 18px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  }
+  .browse-row.available {
+    border-color: #15803d;
+  }
+  .browse-row.unavailable {
+    border-color: #dc2626;
+    opacity: 0.85;
+  }
+  .browse-cover {
+    width: 90px;
+    height: 130px;
+    flex: 0 0 90px;
+    overflow: hidden;
+    border-radius: 10px;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .browse-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .cover-status-band {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    padding: 4px 0 6px;
+    font-size: 11px;
+    text-align: center;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.3px;
+  }
+  .cover-status-band.available {
+    background: #15803d;
+  }
+  .cover-status-band.unavailable {
+    background: #dc2626;
+  }
+  .browse-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .browse-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #111;
+  }
+  .browse-author {
+    margin: 0;
+    font-size: 13px;
+    color: #444;
+  }
+  .browse-desc {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: #555;
+    line-height: 1.4;
+    max-height: 54px;
+    overflow: hidden;
+  }
+  .browse-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 4px;
+    font-size: 12px;
+  }
+  .copies-label strong {
+    color: #063fd1;
+  }
+  .status-label {
+    padding: 4px 10px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 14px;
+    color: #fff;
+  }
+  .status-label.available {
+    background: #15803d;
+  }
+  .status-label.unavailable {
+    background: #dc2626;
+  }
+  .browse-actions {
+    display: flex;
+    align-items: center;
+  }
+  .borrow-row-btn {
+    padding: 10px 22px;
+  }
+  .count-badge {
+    background: #111;
+    color: #fff;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    margin-left: 6px;
+  }
+  .return-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
   gap: 16px;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   color: #000000;
+}
+.browse-toolbar.enhanced {
+  background: #eef3ff;
+  padding: 12px 16px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 22px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+.browse-toolbar.enhanced .left-tools {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.browse-toolbar.enhanced .right-tools {
+  display: flex;
+  align-items: center;
+}
+.chip-group {
+  display: inline-flex;
+  gap: 8px;
+  background: #fff;
+  padding: 6px 8px;
+  border: 1px solid #d1d9e6;
+  border-radius: 12px;
+}
+.chip {
+  background: transparent;
+  border: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #334155;
+}
+.chip.active,
+.chip:hover {
+  background: #063fd1;
+  color: #fff;
+}
+.select-wrap select.category-select {
+  background: #fff;
+  border: 1px solid #d1d9e6;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  min-width: 160px;
+}
+.browse-grid {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+.book-card-browse {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 14px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+  position: relative;
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+.book-card-browse.available {
+  border-color: #15803d;
+}
+.book-card-browse.unavailable {
+  border-color: #dc2626;
+  opacity: 0.92;
+}
+.book-card-browse:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.cover-box-browse {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f3f4f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cover-box-browse img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.status-band-browse {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 6px 0 8px;
+  font-size: 11px;
+  text-align: center;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.3px;
+  background: #374151;
+}
+.status-band-browse.available {
+  background: #15803d;
+}
+.status-band-browse.unavailable {
+  background: #dc2626;
+}
+.quick-borrow {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(6, 63, 209, 0.92);
+  color: #fff;
+  border: none;
+  padding: 6px 10px 7px;
+  font-size: 11px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+.quick-borrow:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+.info-block .title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+}
+.info-block .author {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: #475569;
+}
+.info-block .category {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0d4d8f;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.info-block .desc {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 60px;
+  overflow: hidden;
+  color: #555;
+}
+.info-block .read-more {
+  background: none;
+  border: none;
+  padding: 4px 0 0;
+  font-size: 11px;
+  color: #063fd1;
+  cursor: pointer;
+  font-weight: 600;
+}
+.info-block .read-more:hover {
+  text-decoration: underline;
+}
+/* Line clamp for description */
+.info-block .desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  line-clamp: 3;
+}
+.meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 11px;
+  align-items: center;
+}
+.meta-line .copies strong {
+  color: #063fd1;
+}
+.availability-tag {
+  padding: 4px 10px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 12px;
+  color: #fff;
+  letter-spacing: 0.4px;
+}
+.availability-tag.available {
+  background: #15803d;
+}
+.availability-tag.unavailable {
+  background: #dc2626;
+}
+.skeleton-grid {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+.skeleton-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 14px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.sk-cover {
+  width: 100%;
+  height: 180px;
+  background: #f1f5f9;
+  border-radius: 12px;
+}
+.sk-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sk-line {
+  height: 10px;
+  background: #f1f5f9;
+  border-radius: 6px;
+}
+.sk-line.w80 {
+  width: 80%;
+}
+.sk-line.w60 {
+  width: 60%;
+}
+.sk-line.w40 {
+  width: 40%;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 .panel-actions {
   margin-bottom: 20px;
@@ -1095,7 +1966,7 @@ async function confirmReturn(id) {
   display: flex;
   gap: 32px;
   overflow-x: auto;
-  padding: 6px 4px 10px;
+  padding: 30px 4px 10px;
 }
 .recent-card {
   position: relative;
@@ -1120,8 +1991,8 @@ async function confirmReturn(id) {
 }
 .cover-float {
   position: absolute;
-  top: -40px;
-  left: 36px;
+  top: -10px;
+  left: 30px;
   width: 120px;
   height: 170px;
   display: flex;
@@ -1138,13 +2009,14 @@ async function confirmReturn(id) {
 .card-body .book-title {
   font-size: 18px;
   font-weight: 600;
-  margin: 0 0 6px;
+  margin: 0 12px 6px;
   color: #111;
 }
 .card-body .book-author {
   margin: 0;
   font-size: 14px;
   color: #555;
+  margin: 0 12px 6px;
 }
 .availability-pill {
   position: absolute;
@@ -1316,6 +2188,23 @@ async function confirmReturn(id) {
   border-radius: 48px;
   pointer-events: none;
 }
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.detail-cover-inline {
+  width: 120px;
+  height: 170px;
+  flex: 0 0 120px;
+}
+.detail-cover-inline img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
 .detail-cover {
   position: absolute;
   top: -70px;
@@ -1332,7 +2221,7 @@ async function confirmReturn(id) {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 .detail-body {
-  text-align: center;
+  text-align: left;
 }
 .detail-title {
   font-size: 22px;
@@ -1345,6 +2234,121 @@ async function confirmReturn(id) {
   margin: 0 0 4px;
   font-size: 14px;
   color: #555;
+}
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0 14px;
+  font-size: 12px;
+}
+.detail-meta .d-chip {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 4px 10px 6px;
+  border-radius: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+.detail-description {
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 6px;
+  margin-top: 4px;
+  background: #fafafa;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px 14px;
+}
+.desc-header-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.edit-desc-btn {
+  background: #063fd1;
+  color: #fff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.edit-desc-btn:hover {
+  background: #002fa5;
+}
+.desc-edit-area {
+  width: 100%;
+  border: 1px solid #d0d7e2;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: none;
+  line-height: 1.4;
+}
+.desc-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  gap: 12px;
+}
+.desc-edit-actions .buttons {
+  display: flex;
+  gap: 8px;
+}
+.mini-outline {
+  background: #fff;
+  border: 1px solid #063fd1;
+  color: #063fd1;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mini-outline:hover {
+  background: #063fd1;
+  color: #fff;
+}
+.mini-primary {
+  background: #063fd1;
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mini-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.detail-description .desc-h {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #111;
+}
+.detail-description .desc-full {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #444;
+  white-space: pre-line;
+}
+.detail-description::-webkit-scrollbar {
+  width: 6px;
+}
+.detail-description::-webkit-scrollbar-track {
+  background: transparent;
+}
+.detail-description::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
 }
 .detail-pill {
   position: absolute;
@@ -1413,6 +2417,44 @@ async function confirmReturn(id) {
   .book-modal {
     padding: 40px 24px 48px;
   }
+}
+.return-heading {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.return-divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 18px 0;
+}
+.returned-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.toggle-returned {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.toggle-returned:hover:not([disabled]) {
+  background: #f1f5f9;
+}
+.returned-expanded .book-card {
+  background: #f8fafc;
+}
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 .profile-overlay {
   position: fixed;
@@ -1733,7 +2775,6 @@ async function confirmReturn(id) {
 }
 @media (max-width: 900px) {
   .borrower-home {
-    min-width: 0;
     padding-top: 160px;
   }
   .frame-18,
@@ -1748,6 +2789,46 @@ async function confirmReturn(id) {
   }
   .nav-inline {
     flex-wrap: wrap;
+  }
+}
+@media (max-width: 600px) {
+  .recent-strip {
+    flex-wrap: wrap;
+  }
+  .recent-card {
+    width: 100%;
+    padding: 24px 24px 56px 120px;
+  }
+  .cover-float {
+    left: 24px;
+    width: 90px;
+    height: 140px;
+  }
+  .all-grid {
+    gap: 20px;
+  }
+  .book-cell {
+    width: 45%;
+  }
+}
+@media (max-width: 480px) {
+  .book-cell {
+    width: 100%;
+  }
+  .frame-18 {
+    width: 100%;
+    left: 0;
+    padding: 10px 16px;
+  }
+  .search-input {
+    font-size: 16px;
+    padding-left: 34px;
+  }
+  .panel-header h2 {
+    font-size: 20px;
+  }
+  .page-title {
+    font-size: 26px;
   }
 }
 </style>

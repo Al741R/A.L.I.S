@@ -8,6 +8,7 @@ export const useBooksStore = defineStore('books', () => {
   const categories = ref([])
   const loading = ref(false)
   const error = ref(null)
+  const pagination = ref(null)
   const { api, extract } = useApi()
 
   async function fetchAll(params = {}) {
@@ -17,6 +18,17 @@ export const useBooksStore = defineStore('books', () => {
       const data = extract(await api.get('/books', { params }))
       const raw = data.data || data
       list.value = sanitizeArray(raw)
+      // Capture pagination meta if present (non-breaking for existing consumers)
+      if (data && typeof data === 'object' && Array.isArray(data.data) && 'current_page' in data) {
+        pagination.value = {
+          current_page: data.current_page,
+          last_page: data.last_page,
+          per_page: data.per_page,
+          total: data.total,
+        }
+      } else {
+        pagination.value = null
+      }
     } catch (e) {
       error.value = e.response?.data || e.message
     } finally {
@@ -56,9 +68,16 @@ export const useBooksStore = defineStore('books', () => {
 
   async function fetchCategories() {
     try {
-      categories.value = sanitizeArray(extract(await api.get('/categories')))
-    } catch (e) {
-      /* ignore */
+      const res = extract(await api.get('/categories?per_page=100'))
+      const raw = res.data || res
+      // Normalize categories separately (do NOT run book normalizer here)
+      categories.value = Array.isArray(raw)
+        ? raw
+            .filter((c) => c && typeof c === 'object')
+            .map((c) => ({ id: c.id, category_name: c.category_name }))
+        : []
+    } catch {
+      categories.value = []
     }
   }
 
@@ -124,6 +143,7 @@ export const useBooksStore = defineStore('books', () => {
     categories,
     loading,
     error,
+    pagination,
     fetchAll,
     fetchOne,
     create,

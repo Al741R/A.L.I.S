@@ -88,8 +88,8 @@ defineOptions({ name: 'AdminTopBar' })
   gap: 14px;
   font-size: 14px;
   font-weight: 500;
-  color: #0d3369;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  color: #0e3e81;
+  box-shadow: 5px 2px 6px rgba(0, 0, 0, 0.04);
 }
 /* Logo */
 @media (max-width: 900px) {

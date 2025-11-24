@@ -34,6 +34,35 @@
   --color-text: var(--vt-c-text-light-1);
 
   --section-gap: 160px;
+
+  /* ALIS Theme Palette */
+  --color-primary: #11009e;
+  --color-secondary: #4942e4;
+  --color-accent: #8696fe;
+  --color-muted: #c4b0ff;
+
+  /* Semantic surfaces and borders */
+  --surface-1: #ffffff;
+  --surface-2: #f5f7ff; /* light soft panel */
+  --surface-3: #eef3ff; /* toolbar-like */
+  --border: #d1d9e6;
+  --text-strong: #0b0f1a;
+  --text-muted: #64748b;
+
+  /* Responsive Breakpoints */
+  --bp-mobile-s: 360px;
+  --bp-mobile-m: 400px;
+  --bp-mobile-l: 480px;
+  --bp-tablet: 768px;
+  --bp-laptop: 1024px;
+  --bp-laptop-l: 1280px;
+
+  /* Utility spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -83,4 +112,34 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Responsive utility classes */
+.stack-sm > * + * {
+  margin-top: var(--space-sm);
+}
+.stack-md > * + * {
+  margin-top: var(--space-md);
+}
+.hide-mobile {
+  display: initial;
+}
+.show-mobile {
+  display: none;
+}
+@media (max-width: 768px) {
+  .hide-mobile {
+    display: none !important;
+  }
+  .show-mobile {
+    display: initial !important;
+  }
+}
+/* Horizontal scroll helper for tables on narrow widths */
+.responsive-table {
+  width: 100%;
+  overflow-x: auto;
+}
+.responsive-table table {
+  min-width: 560px;
 }

@@ -1,11 +1,18 @@
 <template>
   <section class="metrics-section">
     <div class="cards-row">
-      <div class="metric-card" v-for="m in metrics" :key="m.key">
+      <div class="metric-card" v-for="m in metrics" :key="m.key" @click="openModal(m.key)">
         <div class="metric-inner">
           <div class="metric-header">
             <span class="metric-label">{{ m.label }}</span>
-            <span class="metric-icon" aria-hidden="true">➜</span>
+            <button
+              class="metric-btn"
+              type="button"
+              @click.stop="openModal(m.key)"
+              :aria-label="'Show ' + m.label + ' details'"
+            >
+              ⋯
+            </button>
           </div>
           <div class="metric-value">{{ m.value }}</div>
         </div>
@@ -44,61 +51,248 @@
         <p v-else class="empty">No data yet.</p>
       </div>
     </div>
+
+    <!-- Modals -->
+    <div v-if="activeModal" class="modal-overlay" @click.self="closeModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 class="modal-title">{{ modalTitle }}</h3>
+          <button type="button" class="close-btn" @click="closeModal">✕</button>
+        </div>
+        <div class="modal-body" v-if="activeModal === 'total'">
+          <div v-if="recentBooks.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Author</th>
+                  <th>Date Added</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="b in recentBooks" :key="b.id">
+                  <td>{{ b.title }}</td>
+                  <td>{{ b.author || '—' }}</td>
+                  <td>{{ formatDate(b.date_added || b.created_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="empty-modal">----No added books this week----</p>
+        </div>
+        <div class="modal-body" v-else-if="activeModal === 'issued'">
+          <div v-if="issuedList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Borrower Name</th>
+                  <th>Book Title</th>
+                  <th>Borrowed Date</th>
+                  <th>Due Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="t in issuedList" :key="t.id">
+                  <td>{{ t.borrower?.first_name }} {{ t.borrower?.last_name }}</td>
+                  <td>{{ t.book?.title }}</td>
+                  <td>{{ formatDate(t.date_borrowed) }}</td>
+                  <td>{{ formatDate(t.due_date) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="empty-modal">----No current borrowed books----</p>
+        </div>
+        <div class="modal-body" v-else-if="activeModal === 'overdue'">
+          <div v-if="overdueList.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Borrower Name</th>
+                  <th>Book Title</th>
+                  <th>Due Date</th>
+                  <th>Days Overdue</th>
+                  <th>Fine</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="t in overdueList" :key="t.id">
+                  <td>{{ t.borrower?.first_name }} {{ t.borrower?.last_name }}</td>
+                  <td>{{ t.book?.title }}</td>
+                  <td>{{ formatDate(t.due_date) }}</td>
+                  <td>{{ t.daysOverdue }}</td>
+                  <td>{{ formatMoney(t.fine) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="empty-modal">----No overdue books----</p>
+        </div>
+        <div class="modal-body" v-else-if="activeModal === 'borrowers'">
+          <div v-if="weeklyRegisteredBorrowers.length" class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Registered Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="u in weeklyRegisteredBorrowers" :key="u.id">
+                  <td>{{ u.full_name || u.first_name + ' ' + u.last_name }}</td>
+                  <td>{{ u.email }}</td>
+                  <td>{{ formatDate(u.date_registered || u.created_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="empty-modal">----No new registered borrower this week----</p>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useBooksStore } from '@/stores/books'
 import { useBorrowingStore } from '@/stores/borrowing'
+import { useUsersStore } from '@/stores/users'
+
+const DAILY_FINE = 10 // keep in sync with backend constant
 
 const books = useBooksStore()
 const borrowing = useBorrowingStore()
+const users = useUsersStore()
+
+onMounted(() => {
+  // Fetch data (increase per_page to capture larger set for dashboard)
+  books.fetchAll({ per_page: 200 }).catch(() => {})
+  borrowing.fetchTransactions({ per_page: 200 }).catch(() => {})
+  users.fetchAll({ per_page: 200 }).catch(() => {})
+})
+
+// Modal state
+const activeModal = ref(null)
+function openModal(key) {
+  activeModal.value = key
+}
+function closeModal() {
+  activeModal.value = null
+}
+const modalTitle = computed(() => {
+  switch (activeModal.value) {
+    case 'total':
+      return 'Added Books'
+    case 'issued':
+      return 'Borrowed Books'
+    case 'overdue':
+      return 'Overdue Books'
+    case 'borrowers':
+      return 'Registered Borrowers'
+    default:
+      return ''
+  }
+})
 
 const totalBooks = computed(() => books.list.length)
 const issuedBooks = computed(
   () =>
-    borrowing.transactions.filter((t) =>
-      ['Borrowed', 'ReturnRequested', 'Overdue'].includes(t.status),
+    borrowing.transactions.filter(
+      (t) => !t.date_returned && ['Borrowed', 'ReturnRequested', 'Overdue'].includes(t.status),
     ).length,
 )
 const overdueBooks = computed(
-  () => borrowing.transactions.filter((t) => t.status === 'Overdue').length,
+  () =>
+    borrowing.transactions.filter(
+      (t) => !t.date_returned && t.due_date && new Date(t.due_date) < new Date(),
+    ).length,
 )
-// Placeholder until we have an endpoint:
-const registeredBorrowers = computed(() => '—')
+const registeredBorrowersCount = computed(() => users.borrowers.length)
 
 const metrics = computed(() => [
   { key: 'total', label: 'Total Books', value: totalBooks.value },
   { key: 'issued', label: 'Issued Books', value: issuedBooks.value },
   { key: 'overdue', label: 'Overdue Books', value: overdueBooks.value },
-  { key: 'borrowers', label: 'Registered Borrowers', value: registeredBorrowers.value },
+  { key: 'borrowers', label: 'Registered Borrowers', value: registeredBorrowersCount.value },
 ])
 
-// Weekly data
+// Recently added books (within last 7 days)
+const recentBooks = computed(() => {
+  const now = new Date()
+  const start = new Date(now)
+  start.setDate(now.getDate() - 6)
+  start.setHours(0, 0, 0, 0)
+  return books.list
+    .filter((b) => {
+      const raw = b.date_added || b.created_at
+      if (!raw) return false
+      const dt = new Date(raw)
+      return dt >= start && dt <= now
+    })
+    .sort((a, b) => new Date(b.date_added || b.created_at) - new Date(a.date_added || a.created_at))
+    .slice(0, 50)
+})
+
+// Issued list
+const issuedList = computed(() =>
+  borrowing.transactions.filter(
+    (t) => !t.date_returned && ['Borrowed', 'ReturnRequested', 'Overdue'].includes(t.status),
+  ),
+)
+
+// Overdue list with computed days & fine
+const overdueList = computed(() => {
+  const today = new Date()
+  return borrowing.transactions
+    .filter((t) => !t.date_returned && t.due_date && new Date(t.due_date) < today)
+    .map((t) => {
+      const due = new Date(t.due_date)
+      const days = Math.max(0, Math.floor((today - due) / (1000 * 60 * 60 * 24)))
+      return { ...t, daysOverdue: days, fine: days * DAILY_FINE }
+    })
+    .sort((a, b) => b.daysOverdue - a.daysOverdue)
+})
+
+// Weekly registered borrowers (last 7 days)
+const weeklyRegisteredBorrowers = computed(() => {
+  const now = new Date()
+  const start = new Date(now)
+  start.setDate(now.getDate() - 6)
+  start.setHours(0, 0, 0, 0)
+  return users.borrowers
+    .filter((u) => {
+      const raw = u.date_registered || u.created_at
+      if (!raw) return false
+      const dt = new Date(raw)
+      return dt >= start && dt <= now
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.date_registered || b.created_at) - new Date(a.date_registered || a.created_at),
+    )
+})
+
+// Weekly data (bars) borrowed counts by weekday
 const weekData = computed(() => {
   const now = new Date()
-  // Determine Monday of current week
-  const day = now.getDay() // 0 Sun - 6 Sat
+  const day = now.getDay()
   const monday = new Date(now)
   const diffToMonday = (day === 0 ? -6 : 1) - day
   monday.setDate(now.getDate() + diffToMonday)
   monday.setHours(0, 0, 0, 0)
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  const results = days.map((d, i) => ({ day: d, dayShort: d, count: 0, index: i }))
+  const results = days.map((d) => ({ day: d, dayShort: d, count: 0 }))
   borrowing.transactions.forEach((t) => {
-    const raw = t.borrowed_at || t.created_at
+    const raw = t.date_borrowed || t.borrowed_at || t.created_at
     if (!raw) return
     const dt = new Date(raw)
     if (isNaN(dt)) return
-    // Check within week (Mon-Sat)
-    const diff = dt - monday
-    if (diff < 0) return
-    const dayIndex = dt.getDay() // 0 Sun ... 6 Sat
-    if (dayIndex === 0) return // ignore Sunday
-    const mappedIndex = dayIndex - 1 // Mon=0
-    if (mappedIndex >= 0 && mappedIndex < results.length) {
-      results[mappedIndex].count++
-    }
+    if (dt < monday) return
+    const dayIndex = dt.getDay()
+    if (dayIndex === 0) return
+    const mappedIndex = dayIndex - 1
+    if (mappedIndex >= 0 && mappedIndex < results.length) results[mappedIndex].count++
   })
   return results
 })
@@ -110,7 +304,7 @@ const borrowedToday = computed(() => {
     m = today.getMonth(),
     d = today.getDate()
   return borrowing.transactions.filter((t) => {
-    const raw = t.borrowed_at || t.created_at
+    const raw = t.date_borrowed || t.borrowed_at || t.created_at
     if (!raw) return false
     const dt = new Date(raw)
     return dt.getFullYear() === y && dt.getMonth() === m && dt.getDate() === d
@@ -134,6 +328,20 @@ function barHeight(count) {
   const max = Math.max(1, ...weekData.value.map((d) => d.count))
   const pct = count / max
   return Math.round(120 * pct) + 'px'
+}
+function formatDate(v) {
+  if (!v) return '—'
+  const dt = new Date(v)
+  if (isNaN(dt)) return '—'
+  return dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' })
+}
+function formatMoney(n) {
+  if (typeof n !== 'number') return '—'
+  return n.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'PHP',
+    minimumFractionDigits: 2,
+  })
 }
 </script>
 <style scoped>
@@ -173,6 +381,19 @@ function barHeight(count) {
   font-size: 14px;
   font-weight: 600;
   color: #1e293b;
+}
+.metric-btn {
+  background: #f1f5f9;
+  border: 0;
+  padding: 4px 8px;
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #475569;
+  transition: background 0.15s;
+}
+.metric-btn:hover {
+  background: #e2e8f0;
 }
 .metric-icon {
   font-size: 16px;
@@ -277,6 +498,82 @@ function barHeight(count) {
 .empty {
   font-size: 13px;
   color: #64748b;
+}
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 60px;
+  z-index: 1000;
+}
+.modal-card {
+  width: min(880px, 95%);
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  border: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.modal-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+}
+.close-btn {
+  background: none;
+  border: 0;
+  font-size: 20px;
+  cursor: pointer;
+  color: #64748b;
+}
+.close-btn:hover {
+  color: #0f172a;
+}
+.modal-body {
+  padding: 18px 22px 26px;
+  overflow: auto;
+  color:#083d8b
+}
+.empty-modal {
+  text-align: center;
+  color: #6b7280;
+  font-size: 13px;
+  margin: 50px 0;
+}
+.table-wrapper {
+  overflow: auto;
+}
+.table-wrapper table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.table-wrapper th,
+.table-wrapper td {
+  border: 1px solid #d1d5db;
+  padding: 6px 10px;
+  text-align: left;
+}
+.table-wrapper th {
+  background: #f8fafc;
+  font-weight: 600;
+}
+.table-wrapper tbody tr:nth-child(even) {
+  background: #f1f5f9;
 }
 @media (max-width: 1400px) {
   .layout-grid {

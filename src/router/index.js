@@ -40,6 +40,25 @@ const routes = [
     component: () => import('../views/BooksAdminView.vue'),
   },
   {
+    path: '/borrowed',
+    name: 'borrowed-admin',
+    meta: { requiresAuth: true, roles: ['Admin', 'Librarian'] },
+    component: () => import('../views/BorrowedView.vue'),
+  },
+  {
+    path: '/reports',
+    name: 'reports',
+    meta: { requiresAuth: true, roles: ['Admin', 'Librarian'] },
+    component: () => import('../views/ReportsView.vue'),
+  },
+  {
+    path: '/reports/:id',
+    name: 'report-detail',
+    meta: { requiresAuth: true, roles: ['Admin', 'Librarian'] },
+    component: () => import('../views/ReportDetailView.vue'),
+    props: true,
+  },
+  {
     path: '/borrower',
     name: 'borrower-menu',
     meta: { requiresAuth: true, roles: ['Borrower'] },
@@ -62,6 +81,15 @@ router.beforeEach(async (to) => {
   if (!auth.initialized) {
     await auth.init()
   }
+  // Ensure user object (and role) is loaded before role checking when authenticated
+  if (auth.isAuthenticated && !auth.user) {
+    try {
+      await auth.fetchMe()
+    } catch {
+      /* ignore */
+    }
+  }
+  const currentRole = (auth.role || '').toLowerCase()
   // Redirect authenticated users away from guest-only pages
   if (to.meta.guestOnly && auth.isAuthenticated) {
     return roleHome(auth.role)
@@ -69,8 +97,12 @@ router.beforeEach(async (to) => {
   // Enforce role-based access
   if (to.meta.requiresAuth) {
     if (!auth.isAuthenticated) return { name: 'login' }
-    if (to.meta.roles && !to.meta.roles.includes(auth.role)) {
-      return roleHome(auth.role)
+    if (to.meta.roles) {
+      const rolesLower = to.meta.roles.map((r) => r.toLowerCase())
+      if (!rolesLower.includes(currentRole)) {
+        // If role not yet determined, allow navigation; else redirect appropriately
+        if (currentRole) return roleHome(auth.role)
+      }
     }
   }
 })
