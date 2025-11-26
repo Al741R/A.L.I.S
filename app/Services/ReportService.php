@@ -36,8 +36,12 @@ class ReportService
             $start = (clone $end)->subMonthsNoOverflow(11)->startOfMonth();
             return [$start, $end->endOfDay(), 'month'];
         }
-        $start = (clone $end)->subDays(6);
-        return [$start->startOfDay(), $end->endOfDay(), 'day'];
+        // Week: Monday to Sunday (7 days)
+        $dayOfWeek = $end->dayOfWeek; // 0=Sun, 1=Mon, ..., 6=Sat
+        $daysFromMonday = ($dayOfWeek + 6) % 7; // Days since last Monday
+        $start = (clone $end)->subDays($daysFromMonday)->startOfDay(); // Last Monday
+        $weekEnd = (clone $start)->addDays(6)->endOfDay(); // Following Sunday
+        return [$start, $weekEnd, 'day'];
     }
 
     private function makeBuckets(string $range): array
@@ -54,12 +58,23 @@ class ReportService
                 $cursor->addMonth();
             }
         } else {
-            $days = $range === 'month' ? 30 : 7;
-            $start = (clone $end)->subDays($days - 1);
+            if ($range === 'month') {
+                $days = 30;
+                $start = (clone $end)->subDays($days - 1);
+            } else {
+                // Week: Monday to Sunday (7 days)
+                $dayOfWeek = $end->dayOfWeek;
+                $daysFromMonday = ($dayOfWeek + 6) % 7;
+                $start = (clone $end)->subDays($daysFromMonday);
+                $days = 7;
+            }
             $cursor = $start->copy();
-            while ($cursor->lte($end)) {
-                $keys[] = $cursor->toDateString();
-                $labels[] = $range === 'week' ? $cursor->format('D') : $cursor->format('d');
+            for ($i = 0; $i < $days; $i++) {
+                $dateString = $cursor->toDateString();
+                $keys[] = $dateString;
+                // Return date strings as labels instead of day abbreviations
+                // Frontend will format these for display
+                $labels[] = $dateString;
                 $cursor->addDay();
             }
         }
@@ -84,8 +99,11 @@ class ReportService
         return Cache::remember("report:borrowing:$range", 300, function () use ($range) {
             [$start, $end, $gran] = $this->makeRange($range);
             $groupExpr = $this->groupExpr('date_borrowed', $gran);
+            // Count only issued borrow events by date_borrowed within range
+            // Exclude transactions without a borrow date
             $rows = BorrowTransaction::query()
                 ->selectRaw("$groupExpr as d, COUNT(*) as c")
+                ->whereNotNull('date_borrowed')
                 ->whereBetween('date_borrowed', [$start, $end])
                 ->groupBy(DB::raw($groupExpr))
                 ->orderBy('d')

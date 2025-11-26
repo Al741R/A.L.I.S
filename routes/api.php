@@ -17,9 +17,9 @@ Route::prefix('v1')->group(function () {
     Route::options('{any}', function () {
         return response()->noContent(204);
     })->where('any', '.*');
-    // Auth endpoints
-    Route::post('auth/login', [AuthController::class, 'login']);
-    Route::post('auth/register', [AuthController::class, 'publicRegisterBorrower']);
+    // Auth endpoints with rate limiting to prevent brute force
+    Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+    Route::post('auth/register', [AuthController::class, 'publicRegisterBorrower'])->middleware('throttle:5,1');
 
     // Public reads (optional): list books/categories
     Route::get('books', [BookController::class, 'index']);
@@ -27,8 +27,8 @@ Route::prefix('v1')->group(function () {
     Route::get('categories', [CategoryController::class, 'index']);
     Route::get('categories/{category}', [CategoryController::class, 'show']);
 
-    // Protected routes
-    Route::middleware('auth:sanctum')->group(function () {
+    // Protected routes with general rate limiting
+    Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
 

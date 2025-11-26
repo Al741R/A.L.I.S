@@ -22,7 +22,7 @@ class BorrowTransactionController extends Controller
         $status = $request->get('status');
         $overdue = $request->boolean('overdue');
         $tx = BorrowTransaction::query()
-            ->with(['borrower','librarian','book'])
+            ->with(['borrower','librarian','book.category'])
             // If overdue flag is set, ignore explicit status and compute overdue set.
             ->when(!$overdue && $status, fn($s) => $s->where('status', $status))
             ->when($overdue, function ($q) {
@@ -49,7 +49,7 @@ class BorrowTransactionController extends Controller
         $status = $request->get('status');
         $overdue = $request->boolean('overdue');
         $tx = BorrowTransaction::query()
-            ->with(['borrower','librarian','book'])
+            ->with(['borrower','librarian','book.category'])
             ->where('user_id', $user->id)
             ->when(!$overdue && $status, fn($s) => $s->where('status', $status))
             ->when($overdue, function ($q) {
