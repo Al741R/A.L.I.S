@@ -1,5 +1,6 @@
 <template>
-  <div class="borrower-home">
+  <BorrowerLoader v-if="isLoading" />
+  <div class="borrower-home" v-else>
     <!-- Logo / branding block -->
     <div class="element-wrapper">
       <img class="element" :src="borrowerLogo" alt="ALIS Borrower Logo" />
@@ -59,33 +60,60 @@
               View all
             </button>
           </header>
-          <div class="recent-strip" v-if="recentBorrowed.length">
-            <article
-              v-for="t in recentBorrowed"
-              :key="t.id"
-              class="recent-card"
-              :class="statusClass(t.book)"
-              @click="openBook(t.book)"
+          <div class="carousel-container" v-if="recentBorrowed.length">
+            <button
+              type="button"
+              class="carousel-nav prev"
+              @click="carouselPrev"
+              aria-label="Previous book"
             >
-              <div class="card-gradient" :class="statusClass(t.book)"></div>
-              <div class="cover-float" v-if="bookCover(t.book)">
-                <img :src="bookCover(t.book)" :alt="t.book.title" />
+              ‹
+            </button>
+            <div class="carousel-wrapper">
+              <div class="carousel-track" :style="carouselTransform">
+                <article
+                  v-for="(t, idx) in recentBorrowed"
+                  :key="t.id"
+                  class="carousel-card"
+                  :class="[
+                    statusClass(t.book),
+                    {
+                      active: idx === carouselIndex,
+                      prev: idx === carouselIndex - 1,
+                      next: idx === carouselIndex + 1,
+                    },
+                  ]"
+                  @click="openBook(t.book)"
+                >
+                  <div class="card-gradient" :class="statusClass(t.book)"></div>
+                  <div class="cover-float" v-if="bookCover(t.book)">
+                    <img :src="bookCover(t.book)" :alt="t.book.title" />
+                  </div>
+                  <div class="card-body">
+                    <h3 class="book-title">{{ t.book?.title || 'Untitled' }}</h3>
+                    <p class="book-author">{{ t.book?.author || 'Unknown Author' }}</p>
+                  </div>
+                  <div class="availability-pill" :class="statusClass(t.book)">
+                    {{ availabilityLabel(t.book) }}
+                  </div>
+                  <div
+                    v-if="t.status === 'ReturnRequested'"
+                    class="status-overlay-tag"
+                    title="Return requested; awaiting staff confirmation"
+                  >
+                    Requested
+                  </div>
+                </article>
               </div>
-              <div class="card-body">
-                <h3 class="book-title">{{ t.book?.title || 'Untitled' }}</h3>
-                <p class="book-author">{{ t.book?.author || 'Unknown Author' }}</p>
-              </div>
-              <div class="availability-pill" :class="statusClass(t.book)">
-                {{ availabilityLabel(t.book) }}
-              </div>
-              <div
-                v-if="t.status === 'ReturnRequested'"
-                class="status-overlay-tag"
-                title="Return requested; awaiting staff confirmation"
-              >
-                Requested
-              </div>
-            </article>
+            </div>
+            <button
+              type="button"
+              class="carousel-nav next"
+              @click="carouselNext"
+              aria-label="Next book"
+            >
+              ›
+            </button>
           </div>
           <p v-else class="empty-msg">No recent borrowed books.</p>
         </section>
@@ -95,7 +123,7 @@
             <button
               type="button"
               class="link-btn view-all-btn"
-              @click="books.fetchAll()"
+              @click="setActiveItem('browse')"
               :disabled="books.loading"
             >
               View all
@@ -265,19 +293,24 @@
                 </button>
               </div>
               <div class="borrowed-meta">
-                <span
-                  >Date Borrowed:
-                  <strong>{{ formatDate(t.borrowed_at || t.created_at) }}</strong></span
-                >
-                <span>|</span>
-                <span
-                  >Due date: <strong>{{ formatDate(t.due_date) }}</strong></span
-                >
-                <span>|</span>
-                <span>
-                  Date Returned:
-                  <strong>{{ t.returned_at ? formatDate(t.returned_at) : '—' }}</strong>
+                <span class="meta-left">
+                  <span class="meta-item"
+                    >Date Borrowed:
+                    <strong>{{ formatDate(t.borrowed_at || t.created_at) }}</strong></span
+                  >
+                  <span class="meta-separator">|</span>
+                  <span class="meta-item" v-if="deriveBookCategory(t.book)"
+                    >Category: <strong>{{ deriveBookCategory(t.book) }}</strong></span
+                  >
+                  <span class="meta-separator" v-if="deriveBookCategory(t.book)">|</span>
+                  <span class="meta-item">
+                    Date Returned:
+                    <strong>{{ t.date_returned ? formatDate(t.date_returned) : '—' }}</strong>
+                  </span>
                 </span>
+                <span class="meta-right due-date-red"
+                  >Due Date: <strong>{{ formatDate(t.due_date) }}</strong></span
+                >
               </div>
               <div class="borrowed-separator"></div>
             </div>
@@ -539,7 +572,7 @@
                   v-if="selectedBook.available_copies != null || selectedBook.copies != null"
                   class="d-chip copies"
                 >
-                  Copies:
+                  Available Copies:
                   <strong>{{ selectedBook.available_copies ?? selectedBook.copies }}</strong>
                 </span>
                 <span v-if="selectedBook.year_published" class="d-chip year">
@@ -611,9 +644,6 @@
                 </div>
               </div>
             </div>
-          </div>
-          <div class="detail-pill" :class="statusClass(selectedBook)">
-            {{ availabilityLabel(selectedBook) }}
           </div>
         </div>
         <div class="modal-actions">
@@ -763,6 +793,7 @@
 import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import QrcodeVue from 'qrcode.vue'
 import borrowerLogo from '@/assets/ALIS Logo transparent.png'
+import BorrowerLoader from '@/components/ui/BorrowerLoader.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useBooksStore } from '@/stores/books'
 import { useBorrowingStore } from '@/stores/borrowing'
@@ -790,6 +821,11 @@ const router = useRouter()
 const notify = useNotificationsStore()
 
 // =====================================================
+// LOADING STATE
+// =====================================================
+const isLoading = ref(true)
+
+// =====================================================
 // NAVIGATION STATE (ACTIVE MENU ITEM)
 // =====================================================
 const activeItem = ref('dashboard')
@@ -797,7 +833,50 @@ const activeItem = ref('dashboard')
 // =====================================================
 // DASHBOARD / BOOK MODAL STATE & HELPERS
 // =====================================================
-const recentBorrowed = computed(() => borrowing.transactions.slice(0, 6))
+const recentBorrowed = computed(() => {
+  const oneWeekAgo = new Date()
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7)
+
+  return borrowing.transactions
+    .filter((t) => {
+      // Only show transactions from last week
+      const borrowedDate = new Date(t.borrowed_at || t.date_borrowed || t.created_at)
+      return borrowedDate >= oneWeekAgo
+    })
+    .sort((a, b) => {
+      // Sort newest first (latest borrowed at index 0)
+      const dateA = new Date(a.borrowed_at || a.date_borrowed || a.created_at)
+      const dateB = new Date(b.borrowed_at || b.date_borrowed || b.created_at)
+      return dateB - dateA // Descending order (newest first)
+    })
+    .slice(0, 10) // Limit to maximum 10 books
+})
+const carouselIndex = ref(1)
+const carouselTransform = computed(() => {
+  // Center the active card: calculate wrapper width and card width to offset properly
+  // Each card is 300px + 32px gap = 332px spacing
+  const cardWidth = 332
+  const offset = carouselIndex.value * -cardWidth
+  // Add centering offset to position active card in the middle of viewport
+  const centerOffset = 'calc(50% - 150px)' // Half wrapper minus half card width
+  return `transform: translateX(calc(${centerOffset} + ${offset}px))`
+})
+function carouselPrev() {
+  // Infinite carousel: wrap to last item when going before first
+  if (carouselIndex.value > 0) {
+    carouselIndex.value--
+  } else {
+    carouselIndex.value = recentBorrowed.value.length - 1
+  }
+}
+function carouselNext() {
+  // Infinite carousel: wrap to first item when going past last
+  if (carouselIndex.value < recentBorrowed.value.length - 1) {
+    carouselIndex.value++
+  } else {
+    carouselIndex.value = 0
+  }
+}
 const showBookModal = ref(false)
 const selectedBook = ref(null)
 const showBorrowCard = ref(false)
@@ -1226,11 +1305,22 @@ async function saveProfile() {
 // =====================================================
 // LIFECYCLE INITIALIZATION (FETCH DATA ON MOUNT)
 // =====================================================
-onMounted(() => {
-  books.fetchAll()
-  borrowing.fetchTransactions()
-  activity.fetchLogs()
-  auth.fetchMe()
+onMounted(async () => {
+  try {
+    await Promise.all([
+      books.fetchAll(),
+      borrowing.fetchTransactions(),
+      activity.fetchLogs(),
+      auth.fetchMe(),
+    ])
+  } catch (error) {
+    console.error('Error loading initial data:', error)
+  } finally {
+    // Give a small delay for smooth transition
+    setTimeout(() => {
+      isLoading.value = false
+    }, 500)
+  }
 })
 
 // =====================================================
@@ -1274,12 +1364,22 @@ function returnStatusClass(t) {
 }
 function deriveBookCategory(book) {
   if (!book) return ''
+
+  // First priority: check if category is an object and extract its properties
+  if (book.category && typeof book.category === 'object') {
+    const cat = book.category.category_name || book.category.name || book.category.title
+    if (cat) return cat
+  }
+
+  // Second priority: direct string category field
+  if (book.category && typeof book.category === 'string') {
+    return book.category
+  }
+
+  // Fallback to other possible fields
   return (
     book.subject ||
-    book.category ||
     book.category_name ||
-    (book.category && book.category.name) ||
-    (book.category && book.category.title) ||
     (Array.isArray(book.categories) && book.categories[0]) ||
     book.genre ||
     ''
@@ -1356,7 +1456,7 @@ function refreshReturnPanel() {
   padding: 12px 20px;
   position: absolute;
   top: 45px;
-  left: 320px;
+  left: 250px;
   width: 303px; /* fix width so long text does not stretch layout */
   box-sizing: border-box;
 }
@@ -1405,7 +1505,7 @@ function refreshReturnPanel() {
 .frame-93 {
   position: absolute;
   top: 40px;
-  right: 40px;
+  right: 75px;
   background: #ffffff;
   border-radius: 28px;
   padding: 8px 18px;
@@ -1962,13 +2062,64 @@ function refreshReturnPanel() {
 .view-all-btn {
   font-size: 14px;
 }
-.recent-strip {
+.carousel-container {
+  position: relative;
   display: flex;
-  gap: 32px;
-  overflow-x: auto;
+  align-items: center;
+  gap: 20px;
   padding: 30px 4px 10px;
 }
-.recent-card {
+.carousel-nav {
+  background: rgba(255, 255, 255, 0.95);
+  border: 2px solid #1967d2;
+  color: #1967d2;
+  font-size: 28px;
+  font-weight: bold;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+  z-index: 10;
+  line-height: 1;
+  padding: 0;
+  user-select: none;
+}
+.carousel-nav:hover:not(:disabled) {
+  background: #1967d2;
+  color: white;
+  transform: scale(1.1);
+}
+.carousel-nav:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  border-color: #ccc;
+  color: #ccc;
+}
+.carousel-wrapper {
+  flex: 1;
+  overflow: hidden;
+  perspective: 1200px;
+  width: 100%;
+  min-height: 220px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.carousel-track {
+  display: flex;
+  gap: 20px;
+  width: 200%;
+  position: relative;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-style: preserve-3d;
+  padding: 20px 0;
+}
+.carousel-card {
   position: relative;
   width: 300px;
   min-height: 150px;
@@ -1978,9 +2129,27 @@ function refreshReturnPanel() {
   padding: 24px 24px 56px 150px;
   box-sizing: border-box;
   background: linear-gradient(90deg, #ffe4d3, #ffffff);
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: scale(0.85) rotateY(25deg);
+  opacity: 0.5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
-.recent-card.unavailable {
+.carousel-card.unavailable {
   background: linear-gradient(90deg, #d7def4, #ffffff);
+}
+.carousel-card.active {
+  transform: scale(1) rotateY(0deg) translateZ(50px);
+  opacity: 1;
+  z-index: 5;
+  box-shadow: 0 12px 32px rgba(25, 103, 210, 0.25);
+}
+.carousel-card.prev {
+  transform: scale(0.9) rotateY(15deg) translateZ(0px);
+  opacity: 0.7;
+}
+.carousel-card.next {
+  transform: scale(0.9) rotateY(-15deg) translateZ(0px);
+  opacity: 0.7;
 }
 .card-gradient {
   position: absolute;
@@ -2172,7 +2341,7 @@ function refreshReturnPanel() {
 .detail-card {
   position: relative;
   width: 100%;
-  max-width: 520px;
+  max-width: 750px;
   min-height: 170px;
   border-radius: 48px;
   padding: 70px 40px 70px 40px;
@@ -2512,15 +2681,39 @@ function refreshReturnPanel() {
 }
 .borrowed-meta {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
   font-size: 12px;
   color: #444;
   margin-top: 4px;
+  gap: 16px;
+}
+.borrowed-meta .meta-left {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.borrowed-meta .meta-item {
+  white-space: nowrap;
+}
+.borrowed-meta .meta-separator {
+  color: #999;
 }
 .borrowed-meta strong {
   color: #0d4d8f;
   font-weight: 600;
+}
+.borrowed-meta .meta-right {
+  margin-left: auto;
+}
+.borrowed-meta .due-date-red {
+  color: #dc2626;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.borrowed-meta .due-date-red strong {
+  color: #dc2626;
 }
 .borrowed-separator {
   height: 1px;

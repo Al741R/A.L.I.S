@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useAnalyticsStore } from '@/stores/analytics'
 
 const routes = [
   { path: '/', redirect: '/login' },
@@ -104,6 +105,26 @@ router.beforeEach(async (to) => {
         if (currentRole) return roleHome(auth.role)
       }
     }
+  }
+})
+
+// Track page views with analytics
+router.afterEach((to) => {
+  const analytics = useAnalyticsStore()
+
+  // Initialize session if needed
+  if (!analytics.currentSession) {
+    analytics.initSession()
+  }
+
+  // Track page view
+  const pageTitle = to.meta?.title || to.name || to.path
+  analytics.trackPageView(to.path, pageTitle)
+
+  // Update user info if available
+  const auth = useAuthStore()
+  if (auth.user && analytics.currentSession) {
+    analytics.setUser(auth.user.id, auth.role)
   }
 })
 

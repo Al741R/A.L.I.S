@@ -235,6 +235,7 @@ import { useNotificationsStore } from '@/stores/notifications'
 import { useBooksStore } from '@/stores/books'
 import { useUsersStore } from '@/stores/users'
 import { isOverdue, effectiveStatus } from '@/composables/borrowStatus'
+// Removed AdminLoader to simplify admin UI; keep inline skeletons if needed
 
 const DAILY_FINE = 10.0
 
@@ -242,6 +243,7 @@ const router = useRouter()
 const borrowing = useBorrowingStore()
 const borrowRequestsStore = useBorrowRequestsStore()
 const approvingBorrowId = ref(null)
+const isLoading = ref(true)
 const denyingBorrowId = ref(null)
 const notify = useNotificationsStore()
 const books = useBooksStore()
@@ -371,7 +373,12 @@ const categoryOptions = computed(() => {
   const set = new Set(
     books.list
       .map(
-        (b) => b.subject || b.category || b.category_name || (b.category && b.category.name) || '',
+        (b) =>
+          b.subject ||
+          b.category_name ||
+          (b.category && b.category.name) ||
+          (typeof b.category === 'string' ? b.category : '') ||
+          '',
       )
       .filter(Boolean),
   )
@@ -382,12 +389,13 @@ const filtered = computed(() => {
   return active.value.filter((t) => {
     const title = (t.book?.title || '').toLowerCase()
     const bname = borrowerName(t).toLowerCase()
-    const category = (
+    const categorySource =
       t.book?.subject ||
-      t.book?.category ||
       t.book?.category_name ||
+      (t.book?.category && t.book?.category.name) ||
+      (typeof t.book?.category === 'string' ? t.book?.category : '') ||
       ''
-    ).toLowerCase()
+    const category = String(categorySource).toLowerCase()
     const matchesTerm = !term || title.includes(term) || bname.includes(term)
     const effStatus = effectiveStatus(t)
     const matchesStatus =
@@ -396,7 +404,8 @@ const filtered = computed(() => {
         ? effStatus === 'Overdue'
         : effStatus === statusFilter.value)
     const matchesBorrower = !borrowerFilter.value || t.user_id === borrowerFilter.value
-    const matchesCategory = !categoryFilter.value || category === categoryFilter.value.toLowerCase()
+    const matchesCategory =
+      !categoryFilter.value || category === String(categoryFilter.value).toLowerCase()
     return matchesTerm && matchesStatus && matchesBorrower && matchesCategory
   })
 })
@@ -504,19 +513,29 @@ function exportCsv() {
   notify.push('CSV exported.', { type: 'success' })
 }
 
-onMounted(() => {
-  // Load active transactions using backend overdue logic + borrowed status.
-  borrowing.fetchActiveTransactions?.() ||
-    borrowing.fetchAllTransactions?.() ||
-    borrowing.fetchTransactions()
-  books.fetchAll()
-  users.fetchAll()
-  borrowRequestsStore.fetchAll?.()
-  // Restore sort state
-  const sb = localStorage.getItem('borrowed_sort_by')
-  const sd = localStorage.getItem('borrowed_sort_dir')
-  if (sb) sortBy.value = sb
-  if (sd) sortDir.value = sd
+onMounted(async () => {
+  try {
+    // Load active transactions using backend overdue logic + borrowed status.
+    await Promise.all([
+      borrowing.fetchActiveTransactions?.() ||
+        borrowing.fetchAllTransactions?.() ||
+        borrowing.fetchTransactions(),
+      books.fetchAll(),
+      users.fetchAll(),
+      borrowRequestsStore.fetchAll?.(),
+    ])
+  } catch (error) {
+    console.error('Error loading borrowed data:', error)
+  } finally {
+    // Restore sort state
+    const sb = localStorage.getItem('borrowed_sort_by')
+    const sd = localStorage.getItem('borrowed_sort_dir')
+    if (sb) sortBy.value = sb
+    if (sd) sortDir.value = sd
+    setTimeout(() => {
+      isLoading.value = false
+    }, 500)
+  }
 })
 
 // Debug: log counts as data arrives to trace disappearance.

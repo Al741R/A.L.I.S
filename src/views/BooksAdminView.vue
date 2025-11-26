@@ -42,10 +42,32 @@
         />
         <button class="outline" type="button" @click="exportCovers">Export Covers</button>
         <button class="outline" type="button" @click="triggerCoversImport">Import Covers</button>
+        <ExportButton
+          v-if="exportData.length > 0"
+          :data="exportData"
+          filename="books-export"
+          :formats="['csv', 'excel']"
+          title="Books Export"
+          csvLabel="CSV"
+          excelLabel="Excel"
+        />
         <button class="close-page" type="button" @click="goDashboard" aria-label="Close Books Page">
           ×
         </button>
       </div>
+
+      <!-- Advanced Filters -->
+      <AdvancedFilters
+        v-if="Array.isArray(books.categories)"
+        v-model:status="statusFilter"
+        v-model:category="categoryFilter"
+        v-model:yearFrom="yearFrom"
+        v-model:yearTo="yearTo"
+        v-model:author="authorFilter"
+        v-model:availability="availabilityFilter"
+        :categories="books.categories.map((c) => c.category_name)"
+        @reset="resetFilters"
+      />
 
       <div class="table-wrapper" v-if="filtered.length">
         <table class="books-table">
@@ -257,15 +279,17 @@
     </div>
 
     <!-- Delete Confirmation -->
-    <div v-if="showDelete" class="modal-overlay" role="dialog" aria-modal="true">
-      <div class="confirm-box">
-        <p>Are you sure you want to delete this record?</p>
-        <div class="row">
-          <button class="outline" @click="showDelete = false">Cancel</button>
-          <button class="danger" @click="doDelete" :disabled="deleting">Delete</button>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      :show="showDelete"
+      title="Delete Book"
+      message="Are you sure you want to delete this book? This action cannot be undone."
+      confirmText="Delete"
+      cancelText="Cancel"
+      variant="danger"
+      :loading="deleting"
+      @confirm="doDelete"
+      @cancel="showDelete = false"
+    />
   </div>
 </template>
 <script setup>
@@ -274,25 +298,37 @@ import { useBooksStore } from '@/stores/books'
 import { useBorrowingStore } from '@/stores/borrowing'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useBookCoversStore } from '@/stores/bookCovers'
+import { useDebouncedRef } from '@/composables/useDebounce'
+import ExportButton from '@/components/ui/ExportButton.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import AdvancedFilters from '@/components/ui/AdvancedFilters.vue'
 import placeholderCover from '@/assets/book-placeholder.svg'
 
 const books = useBooksStore()
 const borrowing = useBorrowingStore()
 const notify = useNotificationsStore()
 const bookCovers = useBookCoversStore()
+// AdminLoader removed; load data inline without fullscreen loader
 
-const searchRaw = ref('')
-const search = ref('')
-let searchDebounce = null
-watch(searchRaw, (val) => {
-  if (searchDebounce) clearTimeout(searchDebounce)
-  searchDebounce = setTimeout(() => {
-    search.value = val
-  }, 180)
-})
+// Use debounced search with 300ms delay for better performance
+const { value: searchRaw, debouncedValue: search } = useDebouncedRef('', 300)
 const categoryFilter = ref('')
+const statusFilter = ref('')
+const yearFrom = ref(null)
+const yearTo = ref(null)
+const authorFilter = ref('')
+const availabilityFilter = ref('')
 const page = ref(1)
 const perPage = 25
+
+function resetFilters() {
+  categoryFilter.value = ''
+  statusFilter.value = ''
+  yearFrom.value = null
+  yearTo.value = null
+  authorFilter.value = ''
+  availabilityFilter.value = ''
+}
 
 // Sorting
 const sortBy = ref('')
@@ -416,12 +452,39 @@ const filtered = computed(() => {
   return base
     .map((b) => ({ ...b, _normCategory: bookCategory(b) }))
     .filter((b) => {
+      // Search term
       const matchTerm =
         !term ||
         (b.title || '').toLowerCase().includes(term) ||
         (b.author || '').toLowerCase().includes(term)
+
+      // Category filter
       const matchCat = !categoryFilter.value || b._normCategory === categoryFilter.value
-      return matchTerm && matchCat
+
+      // Status filter
+      const matchStatus =
+        !statusFilter.value ||
+        (statusFilter.value === 'available' && isAvailable(b)) ||
+        (statusFilter.value === 'unavailable' && !isAvailable(b))
+
+      // Year filter
+      const bookYear = b.year_published || 0
+      const matchYear =
+        (!yearFrom.value || bookYear >= yearFrom.value) &&
+        (!yearTo.value || bookYear <= yearTo.value)
+
+      // Author filter
+      const matchAuthor =
+        !authorFilter.value ||
+        (b.author || '').toLowerCase().includes(authorFilter.value.toLowerCase())
+
+      // Availability filter
+      const matchAvailability =
+        !availabilityFilter.value ||
+        (availabilityFilter.value === 'in-stock' && availableQty(b) > 0) ||
+        (availabilityFilter.value === 'out-of-stock' && availableQty(b) === 0)
+
+      return matchTerm && matchCat && matchStatus && matchYear && matchAuthor && matchAvailability
     })
 })
 const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / perPage)))
@@ -473,6 +536,21 @@ const sorted = computed(() => {
 const paged = computed(() => {
   const start = (page.value - 1) * perPage
   return sorted.value.slice(start, start + perPage)
+})
+
+// Export data for CSV/Excel
+const exportData = computed(() => {
+  return filtered.value.map((book) => ({
+    'Book ID': book.book_code || book.code || book.id,
+    Title: book.title || '',
+    Author: book.author || '',
+    Category: bookCategory(book),
+    'Year Published': book.year_published || '',
+    'Total Copies': totalQty(book),
+    Available: availableQty(book),
+    Borrowed: borrowedQty(book),
+    Status: isAvailable(book) ? 'Available' : 'Unavailable',
+  }))
 })
 
 function openCreate() {
@@ -618,13 +696,16 @@ async function doDelete() {
   }
 }
 
-onMounted(() => {
-  books.fetchAll()
-  books.fetchCategories()
-  borrowing.fetchTransactions()
-  // defensive: ensure overlays start hidden
-  showModal.value = false
-  showDelete.value = false
+onMounted(async () => {
+  try {
+    await Promise.all([books.fetchAll(), books.fetchCategories(), borrowing.fetchTransactions()])
+  } catch (error) {
+    console.error('Error loading books data:', error)
+  } finally {
+    // defensive: ensure overlays start hidden
+    showModal.value = false
+    showDelete.value = false
+  }
 })
 
 // Debug overlay opens (helps investigate "black page" modal issue)
@@ -1164,6 +1245,7 @@ function persistLocalCover(bookId) {
 }
 .confirm-box {
   background: #fff;
+  color: #000000;
   width: 100%;
   max-width: 320px;
   border-radius: 12px;

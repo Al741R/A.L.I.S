@@ -42,6 +42,13 @@
         <button class="outline" @click="generate" :disabled="generating">
           {{ generating ? 'Generating…' : 'Generate Report' }}
         </button>
+        <ExportButton
+          v-if="filtered.length"
+          :data="exportData"
+          filename="reports-list"
+          :formats="['csv', 'excel']"
+          title="Reports List"
+        />
       </div>
       <div class="list-wrapper" v-if="paged.length">
         <h2 class="section-title">Recent</h2>
@@ -88,9 +95,10 @@
   </div>
 </template>
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useReportsStore } from '@/stores/reports'
+import ExportButton from '@/components/ui/ExportButton.vue'
 
 const reports = useReportsStore()
 const search = ref('')
@@ -98,15 +106,27 @@ const filter = ref('')
 const generating = ref(false)
 const page = ref(1)
 const perPage = 7
+const isLoading = ref(true)
 const router = useRouter()
+
+onMounted(() => {
+  // Load local reports data
+  reports.loadLocal?.()
+  reports.loadSettings?.()
+  setTimeout(() => {
+    isLoading.value = false
+  }, 500)
+})
 // Expose store helper used in template
 const { humanSize } = reports
 
 function generate() {
   generating.value = true
-  reports.generateCurrentWeek().finally(() => {
-    generating.value = false
-  })
+  useReportsStore()
+    .generateCurrentWeek()
+    .finally(() => {
+      generating.value = false
+    })
 }
 function formatWeek(r) {
   const s = new Date(r.start)
@@ -150,12 +170,23 @@ const paged = computed(() => {
   const start = (page.value - 1) * perPage
   return filtered.value.slice(start, start + perPage)
 })
+
+// Export data for CSV/Excel
+const exportData = computed(() => {
+  return filtered.value.map((report) => ({
+    Week: formatWeek(report),
+    'Generated At': new Date(report.generated_at).toLocaleString(),
+    Size: humanSize(report.size_bytes),
+    'Start Date': new Date(report.start).toLocaleDateString(),
+    'End Date': new Date(report.end).toLocaleDateString(),
+  }))
+})
 </script>
 <style scoped>
 .reports-page {
-  padding: 32px 48px 60px 78px;
+  padding: 32px 70px 60px 78px;
   font-family: Poppins, sans-serif;
-  background: #8696FE;
+  background: #8696fe;
   min-height: 1024px;
 }
 .content-container {

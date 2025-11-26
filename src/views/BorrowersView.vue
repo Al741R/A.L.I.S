@@ -192,11 +192,13 @@ import { useBorrowingStore } from '@/stores/borrowing'
 import { useBooksStore } from '@/stores/books'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useAuthStore } from '@/stores/auth'
+// Removed AdminLoader to simplify admin UI; keep inline skeletons if needed
 
 const router = useRouter()
 const users = useUsersStore()
 const borrowing = useBorrowingStore()
 const books = useBooksStore()
+const isLoading = ref(true)
 const notify = useNotificationsStore()
 const auth = useAuthStore()
 
@@ -427,17 +429,23 @@ async function returnNow(t) {
   }
 }
 
-onMounted(() => {
-  users.fetchAll()
-  borrowing.fetchTransactions()
-  books.fetchAll()
+onMounted(async () => {
+  try {
+    await Promise.all([users.fetchAll(), borrowing.fetchTransactions(), books.fetchAll()])
+  } catch (error) {
+    console.error('Error loading borrowers data:', error)
+  } finally {
+    setTimeout(() => {
+      isLoading.value = false
+    }, 500)
+  }
 })
 </script>
 <style scoped>
 .borrowers-admin {
   padding: 32px 48px 62px 78px;
   font-family: Poppins, sans-serif;
-  background: #8696FE;
+  background: #8696fe;
   min-height: 1024px;
   box-sizing: border-box;
 }

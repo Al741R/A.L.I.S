@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useApi } from '../composables/useApi'
+import { useCaching, CacheKeys, CacheTTL } from '../composables/useCaching'
 
 export const useBooksStore = defineStore('books', () => {
   const list = ref([])
@@ -10,6 +11,7 @@ export const useBooksStore = defineStore('books', () => {
   const error = ref(null)
   const pagination = ref(null)
   const { api, extract } = useApi()
+  const cache = useCaching()
 
   async function fetchAll(params = {}) {
     loading.value = true
@@ -49,6 +51,10 @@ export const useBooksStore = defineStore('books', () => {
     const data = extract(await api.post('/books', payload))
     const norm = normalizeBook(data)
     list.value.push(norm)
+
+    // Invalidate related caches
+    cache.invalidatePattern(/^stats:/)
+
     return norm
   }
 
@@ -57,6 +63,10 @@ export const useBooksStore = defineStore('books', () => {
     const norm = normalizeBook(data)
     list.value = list.value.map((b) => (b.id === id ? norm : b))
     if (current.value?.id === id) current.value = norm
+
+    // Invalidate related caches
+    cache.invalidatePattern(/^stats:/)
+
     return norm
   }
 
@@ -64,18 +74,38 @@ export const useBooksStore = defineStore('books', () => {
     await api.delete(`/books/${id}`)
     list.value = list.value.filter((b) => b.id !== id)
     if (current.value?.id === id) current.value = null
+
+    // Invalidate related caches
+    cache.invalidatePattern(/^stats:/)
   }
 
   async function fetchCategories() {
     try {
+      // Try to get categories from cache first (30-minute TTL)
+      const cached = cache.get(CacheKeys.BOOK_CATEGORIES)
+
+      if (cached) {
+        categories.value = cached
+        return cached
+      }
+
+      // Fetch from API if not cached
       const res = extract(await api.get('/categories?per_page=100'))
       const raw = res.data || res
+
       // Normalize categories separately (do NOT run book normalizer here)
-      categories.value = Array.isArray(raw)
+      const normalized = Array.isArray(raw)
         ? raw
             .filter((c) => c && typeof c === 'object')
             .map((c) => ({ id: c.id, category_name: c.category_name }))
         : []
+
+      categories.value = normalized
+
+      // Cache for 30 minutes
+      cache.set(CacheKeys.BOOK_CATEGORIES, normalized, CacheTTL.LONG)
+
+      return normalized
     } catch {
       categories.value = []
     }

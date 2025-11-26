@@ -18,15 +18,36 @@ export const useNotificationsStore = defineStore('notifications', () => {
     } catch {}
   }
 
-  function push(message, { type = 'info', timeout = 4000, persist = false } = {}) {
+  function push(
+    message,
+    { type = 'info', timeout = 4000, persist = false, action = null, dismissible = true } = {},
+  ) {
     const id = ++idCounter
-    const note = { id, message, type, persist }
+    const timestamp = new Date().toISOString()
+    const note = { id, message, type, persist, action, dismissible, timestamp }
     items.value.push(note)
     if (timeout > 0 && !persist) {
       setTimeout(() => remove(id), timeout)
     }
     persistState()
     return id
+  }
+
+  // Convenience methods for common notification types
+  function success(message, options = {}) {
+    return push(message, { ...options, type: 'success' })
+  }
+
+  function error(message, options = {}) {
+    return push(message, { ...options, type: 'error', timeout: 6000 })
+  }
+
+  function warning(message, options = {}) {
+    return push(message, { ...options, type: 'warning', timeout: 5000 })
+  }
+
+  function info(message, options = {}) {
+    return push(message, { ...options, type: 'info' })
   }
 
   function remove(id) {
@@ -49,5 +70,5 @@ export const useNotificationsStore = defineStore('notifications', () => {
   // Watch for manual edits (unlikely) and persist
   watch(items, () => persistState(), { deep: true })
 
-  return { items, push, remove, clear }
+  return { items, push, remove, clear, success, error, warning, info }
 })

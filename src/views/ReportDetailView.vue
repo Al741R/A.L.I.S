@@ -39,7 +39,7 @@
           </thead>
           <tbody>
             <tr v-for="row in report.daily" :key="row.label">
-              <td>{{ row.label }}</td>
+              <td>{{ formatLabelDate(row.label) }}</td>
               <td>{{ row.borrowed }}</td>
               <td>{{ row.returned }}</td>
             </tr>
@@ -77,6 +77,20 @@ const report = computed(() => reports.current)
 function formatDateTime(iso) {
   const d = new Date(iso)
   return `${d.getMonth() + 1}-${d.getDate()}-${d.getFullYear()}  ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+}
+function formatLabelDate(label) {
+  if (!label) return ''
+  // Parse YYYY-MM-DD format directly to avoid timezone issues
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(label)
+  if (match) {
+    const [, year, month, day] = match
+    // Create date using local timezone (year, month-1, day)
+    const d = new Date(Number(year), Number(month) - 1, Number(day))
+    const monthName = d.toLocaleDateString(undefined, { month: 'long' })
+    // Format: MonthName DD, YYYY (e.g., November 27, 2025)
+    return `${monthName} ${day}, ${year}`
+  }
+  return String(label)
 }
 const rangeLabel = computed(() => {
   if (!report.value) return ''

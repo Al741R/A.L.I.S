@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useApi } from '../composables/useApi'
+import { useCaching, CacheKeys, CacheTTL } from '../composables/useCaching'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(null)
@@ -11,6 +12,7 @@ export const useAuthStore = defineStore('auth', () => {
   const error = ref(null)
   const initialized = ref(false)
   const { api, extract } = useApi()
+  const cache = useCaching()
 
   async function login(credentials) {
     loading.value = true
@@ -44,9 +46,25 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function fetchMe() {
     if (!token.value) return
+
     try {
+      // Try cache first (10-minute TTL for user profile)
+      const cached = cache.get(CacheKeys.USER_PROFILE)
+
+      if (cached) {
+        user.value = cached
+        return cached
+      }
+
+      // Fetch from API if not cached
       const data = extract(await api.get('/auth/me'))
-      user.value = data.user || data
+      const userData = data.user || data
+      user.value = userData
+
+      // Cache user profile
+      cache.set(CacheKeys.USER_PROFILE, userData, CacheTTL.MEDIUM)
+
+      return userData
     } catch (e) {
       if (e.response?.status === 401) logout()
     }
@@ -62,6 +80,10 @@ export const useAuthStore = defineStore('auth', () => {
     }
     token.value = null
     user.value = null
+
+    // Clear all user-related caches on logout
+    cache.invalidatePattern(/^user:/)
+    cache.invalidatePattern(/^stats:/)
   }
 
   async function init() {
