@@ -1,1 +1,6 @@
-A.L.I.S-prototypeDB/.env git add .gitignore git commit -m Ignore local .env for A.L.I.S-prototypeDB
+A.L.I.S-prototypeDB/.env
+alisFE/.env
+alisFE/.env.local
+alisFE/node_modules
+alisFE/dist
+alisFE/build
