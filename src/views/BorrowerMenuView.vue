@@ -157,9 +157,9 @@
           <div class="left-tools">
             <button
               class="btn"
-              @click="books.fetchAll()"
+              @click="refreshAllData()"
               :disabled="books.loading"
-              aria-label="Refresh books list"
+              aria-label="Refresh all data"
             >
               {{ books.loading ? 'Loading…' : 'Refresh' }}
             </button>
@@ -790,7 +790,7 @@
 // =====================================================
 // IMPORTS
 // =====================================================
-import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted, nextTick, onActivated } from 'vue'
 import QrcodeVue from 'qrcode.vue'
 import borrowerLogo from '@/assets/ALIS Logo transparent.png'
 import BorrowerLoader from '@/components/ui/BorrowerLoader.vue'
@@ -819,6 +819,34 @@ const bookCovers = useBookCoversStore()
 const activity = useActivityStore()
 const router = useRouter()
 const notify = useNotificationsStore()
+
+// =====================================================
+// DATA REFRESH MECHANISM
+// =====================================================
+const lastRefreshTime = ref(Date.now())
+
+async function refreshAllData() {
+  try {
+    await Promise.all([
+      books.fetchAll(),
+      borrowing.fetchTransactions(),
+      borrowRequests.fetchUserRequests?.() || Promise.resolve(),
+      activity.fetchLogs(),
+    ])
+    lastRefreshTime.value = Date.now()
+  } catch (error) {
+    console.error('Error refreshing data:', error)
+  }
+}
+
+// Refresh when component becomes active (after navigating back from another view)
+onActivated(() => {
+  const timeSinceLastRefresh = Date.now() - lastRefreshTime.value
+  // Refresh if it's been more than 30 seconds
+  if (timeSinceLastRefresh > 30000) {
+    refreshAllData()
+  }
+})
 
 // =====================================================
 // LOADING STATE
@@ -1321,6 +1349,23 @@ onMounted(async () => {
       isLoading.value = false
     }, 500)
   }
+
+  // Listen for visibility changes (when tab becomes visible after being hidden)
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      const timeSinceLastRefresh = Date.now() - lastRefreshTime.value
+      // Refresh if it's been more than 2 minutes since last refresh
+      if (timeSinceLastRefresh > 120000) {
+        refreshAllData()
+      }
+    }
+  }
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+
+  // Cleanup on unmount
+  onUnmounted(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+  })
 })
 
 // =====================================================
@@ -1417,7 +1462,7 @@ async function confirmReturn(id) {
   }
 }
 function refreshReturnPanel() {
-  borrowing.fetchTransactions()
+  refreshAllData()
 }
 </script>
 
