@@ -749,6 +749,7 @@ function rejectAccount(r) {
   padding: 10px 12px;
   font-size: 12px;
   background: #f8fafc;
+  color: #000000;
 }
 .pager {
   display: flex;
