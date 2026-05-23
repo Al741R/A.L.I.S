@@ -18,11 +18,47 @@ export const useBookCoversStore = defineStore('bookCovers', () => {
     }
   }
   function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(covers.value))
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(covers.value))
+    } catch (err) {
+      if (err.name === 'QuotaExceededError') {
+        // Storage quota exceeded - try to clean up old entries
+        console.warn('localStorage quota exceeded, attempting cleanup...')
+        cleanupOldCovers()
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(covers.value))
+        } catch (retryErr) {
+          console.error('Failed to save covers even after cleanup:', retryErr)
+          alert('Storage limit reached. Please clear some book covers or use smaller images.')
+        }
+      } else {
+        console.error('Failed to save book covers:', err)
+      }
+    }
+  }
+
+  function cleanupOldCovers() {
+    // Remove covers that are no longer needed (oldest first)
+    const entries = Object.entries(covers.value)
+    if (entries.length > 50) {
+      // Keep only the 50 most recent
+      const sorted = entries.slice(-50)
+      covers.value = Object.fromEntries(sorted)
+      console.log(`Cleaned up old covers, kept ${sorted.length} most recent`)
+    }
   }
 
   function setCover(bookId, dataUrlOrUrl) {
     if (!bookId || !dataUrlOrUrl) return
+    // Compress data URLs if they're too large (> 500KB)
+    if (typeof dataUrlOrUrl === 'string' && dataUrlOrUrl.startsWith('data:image/')) {
+      const sizeInBytes = (dataUrlOrUrl.length * 3) / 4 // Approximate base64 size
+      if (sizeInBytes > 500 * 1024) {
+        console.warn(
+          `Large image detected (${(sizeInBytes / 1024).toFixed(0)}KB). Consider using smaller images.`,
+        )
+      }
+    }
     covers.value[bookId] = dataUrlOrUrl
     save()
   }
@@ -54,7 +90,32 @@ export const useBookCoversStore = defineStore('bookCovers', () => {
     }
   }
 
+  function getStorageSize() {
+    try {
+      const data = JSON.stringify(covers.value)
+      const sizeInBytes = new Blob([data]).size
+      return {
+        bytes: sizeInBytes,
+        kb: (sizeInBytes / 1024).toFixed(2),
+        mb: (sizeInBytes / (1024 * 1024)).toFixed(2),
+        count: Object.keys(covers.value).length,
+      }
+    } catch {
+      return { bytes: 0, kb: '0', mb: '0', count: 0 }
+    }
+  }
+
   load()
 
-  return { covers, setCover, removeCover, coverFor, clearAll, exportJson, importJson }
+  return {
+    covers,
+    setCover,
+    removeCover,
+    coverFor,
+    clearAll,
+    exportJson,
+    importJson,
+    cleanupOldCovers,
+    getStorageSize,
+  }
 })

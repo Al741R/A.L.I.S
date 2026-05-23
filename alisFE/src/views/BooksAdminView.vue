@@ -65,7 +65,7 @@
         v-model:yearTo="yearTo"
         v-model:author="authorFilter"
         v-model:availability="availabilityFilter"
-        :categories="books.categories.map((c) => c.category_name)"
+        :categories="books.categories"
         @reset="resetFilters"
       />
 
@@ -280,7 +280,7 @@
 
     <!-- Delete Confirmation -->
     <ConfirmDialog
-      :show="showDelete"
+      v-model="showDelete"
       title="Delete Book"
       message="Are you sure you want to delete this book? This action cannot be undone."
       confirmText="Delete"
@@ -288,7 +288,6 @@
       variant="danger"
       :loading="deleting"
       @confirm="doDelete"
-      @cancel="showDelete = false"
     />
   </div>
 </template>
@@ -657,8 +656,10 @@ async function saveBook() {
 
       await books.update(targetBook.value.id, payload)
       notify.push('Book updated.', { type: 'success' })
-      // Persist cover if selected
-      persistLocalCover(targetBook.value.id)
+      // Persist cover if selected (non-blocking)
+      persistLocalCover(targetBook.value.id).catch((err) => {
+        console.error('Cover save failed:', err)
+      })
     } else {
       await books.create(payload)
       notify.push('Book created.', { type: 'success' })
@@ -667,7 +668,11 @@ async function saveBook() {
         (bk) =>
           bk.isbn === payload.isbn || bk.book_code === payload.isbn || bk.title === payload.title,
       )
-      if (created) persistLocalCover(created.id)
+      if (created) {
+        persistLocalCover(created.id).catch((err) => {
+          console.error('Cover save failed:', err)
+        })
+      }
     }
     showModal.value = false
     books.fetchAll()
@@ -827,22 +832,60 @@ function clearCover() {
   form.value.cover = ''
 }
 
-function persistLocalCover(bookId) {
-  if (!bookId) return
-  // Priority: uploaded file -> URL typed in field -> existing preview
-  if (coverFileRef.value) {
+// Helper: compress image to prevent quota issues
+function compressImage(file, maxWidth = 800, quality = 0.8) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      bookCovers.setCover(bookId, ev.target.result)
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        let width = img.width
+        let height = img.height
+
+        // Scale down if needed
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width
+          width = maxWidth
+        }
+
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+
+        // Convert to compressed data URL
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality)
+        resolve(compressedDataUrl)
+      }
+      img.onerror = reject
+      img.src = e.target.result
     }
-    reader.readAsDataURL(coverFileRef.value)
-  } else if (form.value.cover) {
-    bookCovers.setCover(bookId, form.value.cover)
-  } else if (coverPreview.value) {
-    bookCovers.setCover(bookId, coverPreview.value)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+async function persistLocalCover(bookId) {
+  if (!bookId) return
+  try {
+    // Priority: uploaded file -> URL typed in field -> existing preview
+    if (coverFileRef.value) {
+      // Compress image before storing to save space
+      const compressed = await compressImage(coverFileRef.value)
+      bookCovers.setCover(bookId, compressed)
+    } else if (form.value.cover) {
+      bookCovers.setCover(bookId, form.value.cover)
+    } else if (coverPreview.value) {
+      bookCovers.setCover(bookId, coverPreview.value)
+    }
+  } catch (err) {
+    console.error('Failed to save cover:', err)
+    notify.push('Failed to save book cover image', { type: 'warning' })
+  } finally {
+    // Reset temp refs
+    coverFileRef.value = null
   }
-  // Reset temp refs
-  coverFileRef.value = null
 }
 </script>
 <style scoped>

@@ -16,8 +16,8 @@
             <label class="filter-label">Status</label>
             <select v-model="localFilters.status" class="filter-select">
               <option value="">All</option>
-              <option value="Available">Available</option>
-              <option value="Unavailable">Unavailable</option>
+              <option value="available">Available</option>
+              <option value="unavailable">Unavailable</option>
             </select>
           </div>
 
@@ -26,7 +26,11 @@
             <label class="filter-label">Category</label>
             <select v-model="localFilters.category" class="filter-select">
               <option value="">All Categories</option>
-              <option v-for="cat in categories" :key="cat.id" :value="cat.category_name">
+              <option
+                v-for="cat in normalizedCategories"
+                :key="cat.id || cat.category_name"
+                :value="cat.category_name"
+              >
                 {{ cat.category_name }}
               </option>
             </select>
@@ -95,6 +99,13 @@ import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
+  status: { type: String, default: '' },
+  category: { type: String, default: '' },
+  yearFrom: { type: [Number, String, null], default: null },
+  yearTo: { type: [Number, String, null], default: null },
+  author: { type: String, default: '' },
+  availability: { type: String, default: '' },
+  minAvailable: { type: [Number, String, null], default: null },
   categories: { type: Array, default: () => [] },
   showStatus: { type: Boolean, default: true },
   showCategory: { type: Boolean, default: true },
@@ -103,19 +114,53 @@ const props = defineProps({
   showAvailability: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update:modelValue', 'apply'])
+const emit = defineEmits([
+  'update:modelValue',
+  'update:status',
+  'update:category',
+  'update:yearFrom',
+  'update:yearTo',
+  'update:author',
+  'update:availability',
+  'update:minAvailable',
+  'apply',
+  'reset',
+])
 
 const expanded = ref(false)
 const currentYear = new Date().getFullYear()
 
-const localFilters = ref({
-  status: props.modelValue.status || '',
-  category: props.modelValue.category || '',
-  yearFrom: props.modelValue.yearFrom || null,
-  yearTo: props.modelValue.yearTo || null,
-  author: props.modelValue.author || '',
-  minAvailable: props.modelValue.minAvailable || null,
+const normalizedCategories = computed(() => {
+  return (props.categories || []).map((cat) => {
+    if (!cat) return { id: '', category_name: '' }
+    if (typeof cat === 'string') return { id: cat, category_name: cat }
+    return {
+      id: cat.id ?? cat.category_name ?? cat.name ?? cat.title ?? cat.code ?? cat.slug ?? '',
+      category_name: cat.category_name || cat.name || cat.title || cat.label || cat.code || '',
+    }
+  })
 })
+
+function hasKey(obj, key) {
+  return obj && Object.prototype.hasOwnProperty.call(obj, key)
+}
+function getFilterValue(key, fallback) {
+  if (hasKey(props.modelValue, key)) return props.modelValue[key] ?? fallback
+  return props[key] ?? fallback
+}
+function buildFilters() {
+  return {
+    status: getFilterValue('status', ''),
+    category: getFilterValue('category', ''),
+    yearFrom: getFilterValue('yearFrom', null),
+    yearTo: getFilterValue('yearTo', null),
+    author: getFilterValue('author', ''),
+    availability: getFilterValue('availability', ''),
+    minAvailable: getFilterValue('minAvailable', null),
+  }
+}
+
+const localFilters = ref(buildFilters())
 
 const activeFilterCount = computed(() => {
   let count = 0
@@ -124,13 +169,22 @@ const activeFilterCount = computed(() => {
   if (localFilters.value.yearFrom) count++
   if (localFilters.value.yearTo) count++
   if (localFilters.value.author) count++
+  if (localFilters.value.availability) count++
   if (localFilters.value.minAvailable) count++
   return count
 })
 
 function applyFilters() {
-  emit('update:modelValue', { ...localFilters.value })
-  emit('apply', { ...localFilters.value })
+  const payload = { ...localFilters.value }
+  emit('update:modelValue', payload)
+  emit('update:status', payload.status)
+  emit('update:category', payload.category)
+  emit('update:yearFrom', payload.yearFrom)
+  emit('update:yearTo', payload.yearTo)
+  emit('update:author', payload.author)
+  emit('update:availability', payload.availability)
+  emit('update:minAvailable', payload.minAvailable)
+  emit('apply', payload)
 }
 
 function clearFilters() {
@@ -140,20 +194,39 @@ function clearFilters() {
     yearFrom: null,
     yearTo: null,
     author: '',
+    availability: '',
     minAvailable: null,
   }
   applyFilters()
+  emit('reset')
 }
 
 // Auto-expand if filters are pre-set
 watch(
   () => props.modelValue,
   (newVal) => {
-    if (Object.values(newVal).some((v) => v)) {
+    if (newVal && Object.values(newVal).some((v) => v)) {
       expanded.value = true
     }
   },
   { immediate: true },
+)
+
+watch(
+  () => [
+    props.modelValue,
+    props.status,
+    props.category,
+    props.yearFrom,
+    props.yearTo,
+    props.author,
+    props.availability,
+    props.minAvailable,
+  ],
+  () => {
+    localFilters.value = buildFilters()
+  },
+  { deep: true },
 )
 </script>
 
