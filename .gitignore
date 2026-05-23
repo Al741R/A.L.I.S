@@ -4,3 +4,4 @@ alisFE/.env.local
 alisFE/node_modules
 alisFE/dist
 alisFE/build
+node_modules
