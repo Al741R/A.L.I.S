@@ -1,1 +1,0 @@
-import{_ as s,c as o,a,o as r}from"./index-BB3EoHp8.js";const t={},c={class:"dashboard-view"};function d(n,e){return r(),o("div",c,[...e[0]||(e[0]=[a("h1",null,"Dashboard",-1),a("p",null,"This is a placeholder dashboard. Replace with metrics/components.",-1)])])}const i=s(t,[["render",d],["__scopeId","data-v-3d650167"]]);export{i as default};
